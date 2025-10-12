@@ -16,11 +16,14 @@ import NurseDetailsPage from './pages/NurseDetailsPage';
 import SpecializationsPage from './pages/SpecializationsPage';
 import HospitalServicesPage from './pages/HospitalServicesPage';
 import NotFoundPage from './pages/NotFoundPage';
+import UnauthorizedPage from './pages/UnauthorizedPage';
+import SessionTimeout from './components/security/SessionTimeout';
 
 const App: React.FC = () => {
   return (
     <AuthProvider>
       <AppRoutes />
+      <SessionTimeout />
     </AuthProvider>
   );
 };
@@ -40,6 +43,7 @@ const AppRoutes: React.FC = () => {
     <HashRouter>
       <Routes>
         <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" />} />
+        <Route path="/unauthorized" element={<UnauthorizedPage />} />
         {isAuthenticated ? (
           <Route path="/" element={<DashboardLayout />}>
             <Route index element={<DashboardPage />} />

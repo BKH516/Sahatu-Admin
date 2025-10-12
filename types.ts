@@ -5,6 +5,8 @@ export interface Admin {
   email: string;
   phone_number: string;
   roles: { name: string }[];
+  role?: string; // للتحكم بالصلاحيات
+  permissions?: string[]; // قائمة الصلاحيات
 }
 
 export enum AccountStatus {
