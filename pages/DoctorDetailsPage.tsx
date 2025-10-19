@@ -346,7 +346,15 @@ const DoctorDetailsPage: React.FC = () => {
                             {reservationsLoading ? (
                                 <tr><td colSpan={6} className="text-center p-8">جاري التحميل...</td></tr>
                             ) : reservations.length > 0 ? (
-                                reservations.map(reservation => (
+                                reservations.map(reservation => {
+                                    const phoneNumber = reservation.user?.account?.phone_number || 
+                                        reservation.user?.phone_number || 
+                                        reservation.user?.account?.phone || 
+                                        reservation.user?.phone || 
+                                        reservation.user?.account?.mobile ||
+                                        reservation.user?.mobile;
+                                    
+                                    return (
                                     <tr key={reservation.id} className="border-b border-slate-700 hover:bg-slate-800">
                                         <td className="px-6 py-4">{reservation.id}</td>
                                         <td className="px-6 py-4">
@@ -357,22 +365,7 @@ const DoctorDetailsPage: React.FC = () => {
                                                      `مريض #${reservation.user_id}`}
                                                 </p>
                                                 <p className="text-xs text-slate-400">
-                                                    {(() => {
-                                                        const phoneNumber = 
-                                                            reservation.user?.phone_number || 
-                                                            reservation.user?.account?.phone_number || 
-                                                            reservation.user?.phone || 
-                                                            reservation.user?.account?.phone || 
-                                                            reservation.user?.mobile ||
-                                                            reservation.user?.account?.mobile;
-                                                        
-                                                        if (phoneNumber) {
-                                                            return `📞 ${phoneNumber}`;
-                                                        } else if (reservation.user && !reservation.user.account && !reservation.user.account_id) {
-                                                            return '⚠️ رقم الهاتف غير متوفر في API';
-                                                        }
-                                                        return '';
-                                                    })()}
+                                                    📞 {phoneNumber || 'غير متوفر'}
                                                 </p>
                                             </div>
                                         </td>
@@ -386,7 +379,8 @@ const DoctorDetailsPage: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4">{getStatusBadge(reservation.status)}</td>
                                     </tr>
-                                ))
+                                    );
+                                })
                             ) : (
                                 <tr><td colSpan={6} className="text-center p-8">لا توجد حجوزات.</td></tr>
                             )}

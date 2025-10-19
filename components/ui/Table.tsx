@@ -272,5 +272,6 @@ function Table<T extends { id: number | string }>({
   );
 }
 
-export default Table;
+// Wrap with React.memo to prevent unnecessary re-renders
+export default React.memo(Table) as typeof Table;
 

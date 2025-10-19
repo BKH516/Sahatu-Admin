@@ -129,10 +129,7 @@ const api = {
       }
       
       // التحقق من انتهاء الصلاحية (نسمح بإرسال التوكن، الخادم سيقرر)
-      if (token && isTokenExpired(token)) {
-        // لا نحذف التوكن هنا، ننتظر استجابة 401 من الخادم
-        console.warn('Token is expired, will attempt refresh if needed');
-      }
+      // الكود سيقوم تلقائياً بتحديث التوكن عند استلام 401 من الخادم
     }
     
     const headers = new Headers(fetchOptions.headers || {});

@@ -253,6 +253,7 @@ const SpecializationModal: React.FC<ModalProps> = ({ spec, onClose, onSave, savi
     const [nameEn, setNameEn] = useState(spec.name_en || '');
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const { showToast } = useToast();
 
     useEffect(() => {
         if (spec.image) {
@@ -271,13 +272,13 @@ const SpecializationModal: React.FC<ModalProps> = ({ spec, onClose, onSave, savi
             const maxSize = 5 * 1024 * 1024; // 5MB
             
             if (!validTypes.includes(file.type)) {
-                alert('يرجى اختيار صورة صالحة (JPG, PNG, GIF, WEBP, SVG)');
+                showToast.warning('يرجى اختيار صورة صالحة (JPG, PNG, GIF, WEBP, SVG)');
                 e.target.value = '';
                 return;
             }
             
             if (file.size > maxSize) {
-                alert('حجم الصورة كبير جداً. الحد الأقصى 5 ميجابايت');
+                showToast.warning('حجم الصورة كبير جداً. الحد الأقصى 5 ميجابايت');
                 e.target.value = '';
                 return;
             }
@@ -295,7 +296,7 @@ const SpecializationModal: React.FC<ModalProps> = ({ spec, onClose, onSave, savi
         e.preventDefault();
         
         if (!nameAr.trim() || !nameEn.trim()) {
-            alert('الرجاء إدخال اسم التخصص بالعربية والإنجليزية');
+            showToast.warning('الرجاء إدخال اسم التخصص بالعربية والإنجليزية');
             return;
         }
 

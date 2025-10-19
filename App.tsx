@@ -2,6 +2,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/layout/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
@@ -22,8 +23,10 @@ import SessionTimeout from './components/security/SessionTimeout';
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppRoutes />
-      <SessionTimeout />
+      <NotificationProvider>
+        <AppRoutes />
+        <SessionTimeout />
+      </NotificationProvider>
     </AuthProvider>
   );
 };

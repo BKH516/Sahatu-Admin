@@ -21,51 +21,50 @@ const HospitalsPage: React.FC = () => {
     const [createdHospitalData, setCreatedHospitalData] = useState<any>(null);
     const { toasts, removeToast, success, error, warning } = useToast();
 
-    const fetchHospitals = async () => {
+    // Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalHospitals, setTotalHospitals] = useState(0);
+    const perPage = 20;
+
+    const fetchHospitals = async (page: number = 1) => {
         setLoading(true);
         try {
-            let allHospitals: any[] = [];
-            let currentPage = 1;
-            let hasMorePages = true;
-
-            // جلب جميع الصفحات
-            while (hasMorePages) {
-                const response = await api.get(`/admin/hospital/all?page=${currentPage}&per_page=50`);
+            const response = await api.get(`/admin/hospital/all?page=${page}&per_page=${perPage}`);
                 
                 let hospitalsData: any[] = [];
-                let totalPages = 1;
-                let currentPageFromResponse = 1;
+            let paginationData = {
+                total: 0,
+                lastPage: 1,
+                currentPageNum: page
+            };
                 
                 // استخراج البيانات من الاستجابة
                 if (response.hospitals?.data && Array.isArray(response.hospitals.data)) {
                     hospitalsData = response.hospitals.data;
-                    totalPages = response.hospitals.last_page || 1;
-                    currentPageFromResponse = response.hospitals.current_page || 1;
+                paginationData.total = response.hospitals.total || hospitalsData.length;
+                paginationData.lastPage = response.hospitals.last_page || 1;
+                paginationData.currentPageNum = response.hospitals.current_page || page;
                 } else if (response.hospitals && Array.isArray(response.hospitals)) {
                     hospitalsData = response.hospitals;
+                paginationData.total = hospitalsData.length;
                 } else if (response.data && Array.isArray(response.data)) {
                     hospitalsData = response.data;
+                paginationData.total = hospitalsData.length;
                 } else if (Array.isArray(response)) {
                     hospitalsData = response;
-                }
-                
-                // إضافة البيانات إلى القائمة الكاملة
-                allHospitals = [...allHospitals, ...hospitalsData];
-                
-                // التحقق من وجود صفحات إضافية
-                if (currentPageFromResponse >= totalPages) {
-                    hasMorePages = false;
-                } else {
-                    currentPage++;
-                }
+                paginationData.total = hospitalsData.length;
             }
             
             // تصفية المشافي الصالحة
-            const validHospitals = allHospitals.filter((hospital) => {
+            const validHospitals = hospitalsData.filter((hospital) => {
                 return hospital.id !== undefined && hospital.id !== null;
             });
             
             setHospitals(validHospitals);
+            setTotalPages(paginationData.lastPage);
+            setTotalHospitals(paginationData.total);
+            setCurrentPage(paginationData.currentPageNum);
             
         } catch (err: any) {
             error('فشل تحميل البيانات');
@@ -75,7 +74,7 @@ const HospitalsPage: React.FC = () => {
     };
 
     useEffect(() => {
-        fetchHospitals();
+        fetchHospitals(1);
     }, []);
 
     const handleCreateHospital = async () => {
@@ -101,7 +100,8 @@ const HospitalsPage: React.FC = () => {
             setNewHospitalName('');
             setIsModalOpen(false);
             setIsSuccessModalOpen(true);
-            await fetchHospitals();
+            // إعادة تحميل الصفحة الحالية
+            await fetchHospitals(currentPage);
             
         } catch (err: any) {
             let errorMessage = err?.message || 'حدث خطأ غير متوقع';
@@ -116,6 +116,13 @@ const HospitalsPage: React.FC = () => {
             
         } finally {
             setCreating(false);
+        }
+    };
+
+    const handlePageChange = (page: number) => {
+        if (page >= 1 && page <= totalPages) {
+            fetchHospitals(page);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     };
 
@@ -176,7 +183,7 @@ const HospitalsPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
                     <Badge variant="info" size="lg">
-                        {hospitals.length} مشفى
+                        {totalHospitals} مشفى
                     </Badge>
                     <Button
                         variant="primary"
@@ -201,8 +208,94 @@ const HospitalsPage: React.FC = () => {
                 searchable={true}
                 searchPlaceholder="ابحث عن مشفى بالاسم، البريد، الهاتف..."
                 emptyMessage="لا توجد مشافي مسجلة"
-                itemsPerPage={10}
+                itemsPerPage={perPage}
             />
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <div className="text-sm text-slate-400">
+                        الصفحة {currentPage} من {totalPages} ({totalHospitals} مشفى إجمالاً)
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handlePageChange(1)}
+                            disabled={currentPage === 1 || loading}
+                        >
+                            الأولى
+                        </Button>
+                        
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            disabled={currentPage === 1 || loading}
+                            icon={
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                                </svg>
+                            }
+                        >
+                            السابقة
+                        </Button>
+                        
+                        {/* Page Numbers */}
+                        <div className="hidden sm:flex items-center gap-1">
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum;
+                                if (totalPages <= 5) {
+                                    pageNum = i + 1;
+                                } else if (currentPage <= 3) {
+                                    pageNum = i + 1;
+                                } else if (currentPage >= totalPages - 2) {
+                                    pageNum = totalPages - 4 + i;
+                                } else {
+                                    pageNum = currentPage - 2 + i;
+                                }
+                                
+                                return (
+                                    <Button
+                                        key={pageNum}
+                                        variant={currentPage === pageNum ? 'primary' : 'secondary'}
+                                        size="sm"
+                                        onClick={() => handlePageChange(pageNum)}
+                                        disabled={loading}
+                                        className="min-w-[40px]"
+                                    >
+                                        {pageNum}
+                                    </Button>
+                                );
+                            })}
+                        </div>
+                        
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            disabled={currentPage === totalPages || loading}
+                            icon={
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            }
+                        >
+                            التالية
+                        </Button>
+                        
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handlePageChange(totalPages)}
+                            disabled={currentPage === totalPages || loading}
+                        >
+                            الأخيرة
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Create Hospital Modal */}
             <Modal

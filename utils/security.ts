@@ -134,15 +134,14 @@ export const decryptData = (encryptedData: string, key: string): string => {
 
 // Content Security Policy Violation Reporter
 export const reportCSPViolation = (violation: SecurityPolicyViolationEvent): void => {
-  console.error('CSP Violation:', {
-    blockedURI: violation.blockedURI,
-    violatedDirective: violation.violatedDirective,
-    originalPolicy: violation.originalPolicy,
-    timestamp: new Date().toISOString(),
-  });
-  
+  // تم تعطيل console logs - يمكن إرسال للخادم للمراقبة
   // يمكن إرسال التقرير إلى الخادم هنا
-  // api.post('/security/csp-violation', { ... });
+  // api.post('/security/csp-violation', { 
+  //   blockedURI: violation.blockedURI,
+  //   violatedDirective: violation.violatedDirective,
+  //   originalPolicy: violation.originalPolicy,
+  //   timestamp: new Date().toISOString(),
+  // }).catch(() => {});
 };
 
 // منع Clickjacking
@@ -162,7 +161,7 @@ export const secureCleanup = (): void => {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);
     } catch (e) {
-      console.error('Error cleaning up:', e);
+      // Silent cleanup - no console logs
     }
   });
 };
@@ -182,18 +181,21 @@ export const isSafeUrl = (url: string, allowedDomains: string[]): boolean => {
 
 // تسجيل الأنشطة الأمنية المشبوهة
 export const logSecurityEvent = (event: string, details: any): void => {
-  const securityLog = {
-    event,
-    details,
-    timestamp: new Date().toISOString(),
-    userAgent: navigator.userAgent,
-    url: window.location.href,
-  };
+  // تم تعطيل console logs للحفاظ على نظافة Console
+  // يمكن إرسال الأحداث للخادم للمراقبة إذا لزم الأمر
   
-  console.warn('Security Event:', securityLog);
+  // const securityLog = {
+  //   event,
+  //   details,
+  //   timestamp: new Date().toISOString(),
+  //   userAgent: navigator.userAgent,
+  //   url: window.location.href,
+  // };
   
-  // يمكن إرسال هذا إلى الخادم للمراقبة
-  // api.post('/security/log', securityLog);
+  // إرسال للخادم في الإنتاج فقط (اختياري)
+  // if (import.meta.env.PROD) {
+  //   api.post('/security/log', securityLog).catch(() => {});
+  // }
 };
 
 // منع نسخ كلمات المرور

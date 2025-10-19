@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { HospitalService } from '../types';
 import api from '../services/api';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/ui/Toast';
 
 const HospitalServicesPage: React.FC = () => {
     const [services, setServices] = useState<HospitalService[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentService, setCurrentService] = useState<Partial<HospitalService>>({});
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+    const { toasts, showToast, removeToast } = useToast();
 
     const fetchServices = async () => {
         setLoading(true);
@@ -36,23 +41,25 @@ const HospitalServicesPage: React.FC = () => {
 
     const handleSave = async (serviceName: string) => {
         if (!serviceName.trim()) {
-            alert('يرجى إدخال اسم الخدمة.');
+            showToast.warning('يرجى إدخال اسم الخدمة.');
             return;
         }
         try {
             if (currentService.id) {
                 // Update (PUT) uses JSON as per Postman raw body
                 await api.put(`/admin/service/${currentService.id}`, { service_name: serviceName });
+                showToast.success('تم تحديث الخدمة بنجاح');
             } else {
                 // Create (POST) uses FormData as per Postman formdata body
                 const formData = new FormData();
                 formData.append('service_name', serviceName);
                 await api.post('/admin/service', formData);
+                showToast.success('تم إضافة الخدمة بنجاح');
             }
             fetchServices();
             handleCloseModal();
         } catch (error: any) {
-            alert(`فشل الحفظ: ${error.message}`);
+            showToast.error(`فشل الحفظ: ${error.message}`);
         }
     };
 
@@ -60,11 +67,71 @@ const HospitalServicesPage: React.FC = () => {
         if (window.confirm('هل أنت متأكد من رغبتك في حذف هذه الخدمة؟')) {
             try {
                 await api.delete(`/admin/service/${id}`);
+                showToast.success('تم حذف الخدمة بنجاح');
                 fetchServices();
             } catch (error: any) {
-                alert(`فشل الحذف: ${error.message}`);
+                showToast.error(`فشل الحذف: ${error.message}`);
             }
         }
+    };
+
+    // حساب البيانات للصفحة الحالية
+    const totalPages = Math.ceil(services.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentServices = services.slice(startIndex, endIndex);
+
+    const goToPage = (page: number) => {
+        setCurrentPage(page);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) {
+            setCurrentPage(currentPage - 1);
+        }
+    };
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) {
+            setCurrentPage(currentPage + 1);
+        }
+    };
+
+    // دالة لإنشاء أرقام الصفحات مع النقاط
+    const getPageNumbers = () => {
+        const pages: (number | string)[] = [];
+        const maxVisible = 5; // عدد الصفحات المرئية
+
+        if (totalPages <= 7) {
+            // إذا كان العدد قليل، اعرض كل الصفحات
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            // اعرض الصفحة الأولى دائماً
+            pages.push(1);
+
+            if (currentPage > 3) {
+                pages.push('...');
+            }
+
+            // اعرض الصفحات حول الصفحة الحالية
+            const start = Math.max(2, currentPage - 1);
+            const end = Math.min(totalPages - 1, currentPage + 1);
+
+            for (let i = start; i <= end; i++) {
+                pages.push(i);
+            }
+
+            if (currentPage < totalPages - 2) {
+                pages.push('...');
+            }
+
+            // اعرض الصفحة الأخيرة دائماً
+            pages.push(totalPages);
+        }
+
+        return pages;
     };
 
     return (
@@ -89,7 +156,7 @@ const HospitalServicesPage: React.FC = () => {
                             {loading ? (
                                 <tr><td colSpan={4} className="text-center p-8">جاري التحميل...</td></tr>
                             ) : services.length > 0 ? (
-                                services.map(service => (
+                                currentServices.map(service => (
                                     <tr key={service.id} className="border-b border-slate-700 hover:bg-slate-800">
                                         <td className="px-6 py-4">{service.id}</td>
                                         <td className="px-6 py-4 font-medium">{service.service_name}</td>
@@ -107,7 +174,81 @@ const HospitalServicesPage: React.FC = () => {
                     </table>
                 </div>
             </div>
+
+            {/* عناصر التنقل بين الصفحات */}
+            {!loading && services.length > 0 && totalPages > 1 && (
+                <div className="mt-6">
+                    {/* معلومات الصفحة */}
+                    <div className="text-center text-slate-400 text-sm mb-4">
+                        عرض {startIndex + 1} - {Math.min(endIndex, services.length)} من إجمالي {services.length} خدمة
+                    </div>
+                    
+                    {/* أزرار التنقل */}
+                    <div className="flex justify-center items-center gap-2">
+                        <button
+                            onClick={goToNextPage}
+                            disabled={currentPage === totalPages}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                currentPage === totalPages
+                                    ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
+                                    : 'bg-slate-700 text-slate-200 hover:bg-slate-600 hover:shadow-lg'
+                            }`}
+                        >
+                            التالي ←
+                        </button>
+
+                        <div className="flex gap-1.5">
+                            {getPageNumbers().map((page, index) => (
+                                typeof page === 'number' ? (
+                                    <button
+                                        key={`page-${page}`}
+                                        onClick={() => goToPage(page)}
+                                        className={`min-w-[40px] px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                            currentPage === page
+                                                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30 scale-105'
+                                                : 'bg-slate-700 text-slate-200 hover:bg-slate-600 hover:shadow-md'
+                                        }`}
+                                    >
+                                        {page}
+                                    </button>
+                                ) : (
+                                    <span
+                                        key={`dots-${index}`}
+                                        className="px-2 py-2 text-slate-500 text-sm flex items-center"
+                                    >
+                                        {page}
+                                    </span>
+                                )
+                            ))}
+                        </div>
+
+                        <button
+                            onClick={goToPreviousPage}
+                            disabled={currentPage === 1}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                currentPage === 1
+                                    ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
+                                    : 'bg-slate-700 text-slate-200 hover:bg-slate-600 hover:shadow-lg'
+                            }`}
+                        >
+                            → السابق
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {isModalOpen && <ServiceModal service={currentService} onClose={handleCloseModal} onSave={handleSave} />}
+            
+            {/* Toast Notifications */}
+            {toasts.map((toast) => (
+                <Toast
+                    key={toast.id}
+                    message={toast.message}
+                    type={toast.type}
+                    duration={toast.duration}
+                    onClose={() => removeToast(toast.id)}
+                />
+            ))}
         </div>
     );
 };

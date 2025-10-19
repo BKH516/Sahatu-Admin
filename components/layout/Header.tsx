@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import SearchBar from '../ui/SearchBar';
 
 interface HeaderProps {
@@ -8,8 +9,80 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { admin, logout } = useAuth();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  // إغلاق قائمة الإشعارات عند النقر خارجها
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
+
+  const handleNotificationClick = async (notification: any) => {
+    if (!notification.read) {
+      await markAsRead(notification.id);
+    }
+    // يمكنك إضافة navigation هنا بناءً على نوع الإشعار
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'approval':
+        return (
+          <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+      case 'reservation':
+        return (
+          <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        );
+      case 'alert':
+        return (
+          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        );
+      default:
+        return (
+          <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      return `منذ ${days} ${days === 1 ? 'يوم' : 'أيام'}`;
+    } else if (hours > 0) {
+      return `منذ ${hours} ${hours === 1 ? 'ساعة' : 'ساعات'}`;
+    } else {
+      const minutes = Math.floor(diff / (1000 * 60));
+      return `منذ ${minutes} ${minutes === 1 ? 'دقيقة' : 'دقائق'}`;
+    }
+  };
 
   return (
     <header className="bg-gradient-to-r from-slate-900/95 to-slate-800/95 backdrop-blur-md shadow-lg p-3 md:p-4 flex justify-between items-center z-10 border-b border-slate-700/50 animate-slide-down">
@@ -34,7 +107,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       
       <div className="flex items-center gap-2 md:gap-4">
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notificationRef}>
           <button 
             onClick={() => setShowNotifications(!showNotifications)}
             className="relative p-2 rounded-lg hover:bg-slate-700/50 transition-colors group"
@@ -42,18 +115,82 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
             <svg className="w-6 h-6 text-slate-300 group-hover:text-cyan-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
-            {/* يمكنك إضافة badge للإشعارات الجديدة من الـ API */}
+            {unreadCount > 0 && (
+              <span className="absolute top-0 right-0 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
           
           {showNotifications && (
-            <div className="absolute left-0 mt-2 w-80 bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 rounded-xl shadow-2xl animate-scale-in overflow-hidden">
-              <div className="p-4 border-b border-slate-700/50">
+            <div className="absolute left-0 mt-2 w-96 bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 rounded-xl shadow-2xl animate-scale-in overflow-hidden z-50">
+              <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
                 <h3 className="font-bold text-white">الإشعارات</h3>
+                {notifications.length > 0 && unreadCount > 0 && (
+                  <button
+                    onClick={markAllAsRead}
+                    className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                  >
+                    تعليم الكل كمقروء
+                  </button>
+                )}
               </div>
               <div className="max-h-96 overflow-y-auto custom-scrollbar">
-                <div className="p-8 text-center">
-                  <p className="text-slate-400 text-sm">لا توجد إشعارات جديدة</p>
-                </div>
+                {notifications.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-700/50 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </div>
+                    <p className="text-slate-400 text-sm">لا توجد إشعارات جديدة</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-700/50">
+                    {notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        onClick={() => handleNotificationClick(notification)}
+                        className={`p-4 hover:bg-slate-700/30 transition-colors cursor-pointer ${
+                          !notification.read ? 'bg-cyan-500/5' : ''
+                        }`}
+                      >
+                        <div className="flex gap-3">
+                          <div className="flex-shrink-0 mt-1">
+                            {getNotificationIcon(notification.type)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold text-white">
+                                {notification.title}
+                              </p>
+                              {!notification.read && (
+                                <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 mt-1"></span>
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-300 mt-1 line-clamp-2">
+                              {notification.message}
+                            </p>
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-xs text-slate-500">
+                                {formatDate(notification.created_at)}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteNotification(notification.id);
+                                }}
+                                className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                              >
+                                حذف
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

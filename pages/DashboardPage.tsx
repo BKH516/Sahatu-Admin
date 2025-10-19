@@ -98,11 +98,59 @@ const DashboardPage: React.FC = () => {
                     api.get('/admin/hospital/all?per_page=10000').catch(() => ({ hospitals: { data: [] } })),
                 ]);
 
+                // استخراج عدد الأطباء - نعطي الأولوية لـ total
+                let doctorsCount = 0;
+                if (doctors.doctors?.total) {
+                    doctorsCount = doctors.doctors.total;
+                } else if (doctors.total) {
+                    doctorsCount = doctors.total;
+                } else if (doctors.doctors?.data && Array.isArray(doctors.doctors.data)) {
+                    doctorsCount = doctors.doctors.data.length;
+                } else if (doctors.doctors && Array.isArray(doctors.doctors)) {
+                    doctorsCount = doctors.doctors.length;
+                } else if (doctors.data && Array.isArray(doctors.data)) {
+                    doctorsCount = doctors.data.length;
+                } else if (Array.isArray(doctors)) {
+                    doctorsCount = doctors.length;
+                }
+
+                // استخراج عدد المستخدمين - نعطي الأولوية لـ total
+                let usersCount = 0;
+                if (users.users?.total) {
+                    usersCount = users.users.total;
+                } else if (users.total) {
+                    usersCount = users.total;
+                } else if (users.users?.data && Array.isArray(users.users.data)) {
+                    usersCount = users.users.data.length;
+                } else if (users.users && Array.isArray(users.users)) {
+                    usersCount = users.users.length;
+                } else if (users.data && Array.isArray(users.data)) {
+                    usersCount = users.data.length;
+                } else if (Array.isArray(users)) {
+                    usersCount = users.length;
+                }
+
+                // استخراج عدد المشافي - نعطي الأولوية لـ total
+                let hospitalsCount = 0;
+                if (hospitals.hospitals?.total) {
+                    hospitalsCount = hospitals.hospitals.total;
+                } else if (hospitals.total) {
+                    hospitalsCount = hospitals.total;
+                } else if (hospitals.hospitals?.data && Array.isArray(hospitals.hospitals.data)) {
+                    hospitalsCount = hospitals.hospitals.data.length;
+                } else if (hospitals.hospitals && Array.isArray(hospitals.hospitals)) {
+                    hospitalsCount = hospitals.hospitals.length;
+                } else if (hospitals.data && Array.isArray(hospitals.data)) {
+                    hospitalsCount = hospitals.data.length;
+                } else if (Array.isArray(hospitals)) {
+                    hospitalsCount = hospitals.length;
+                }
+
                 setStats({
                     pendingCount: (doctorPending.data?.length || 0) + (nursePending.data?.length || 0),
-                    doctorsCount: doctors.doctors?.data?.length || doctors.doctors?.length || 0,
-                    usersCount: users.users?.data?.length || users.users?.length || 0,
-                    hospitalsCount: hospitals.hospitals?.data?.length || 0,
+                    doctorsCount,
+                    usersCount,
+                    hospitalsCount,
                 });
             } catch (error) {
             } finally {

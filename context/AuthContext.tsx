@@ -204,8 +204,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       try {
         // الحصول على بيانات المستخدم باستخدام التوكن الجديد
-        console.log('Fetching admin data with token:', savedToken.substring(0, 20) + '...');
-        
         const adminData = await api.get('/admin/me', {
           skipRateLimit: true
         });
@@ -226,8 +224,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (e: any) {
         // حذف التوكن إذا فشل الحصول على بيانات المستخدم
         localStorage.removeItem('sahtee_token');
-        console.error('Failed to fetch admin data:', e);
-        console.error('Token that was used:', savedToken.substring(0, 20) + '...');
         throw new Error("فشل في الحصول على بيانات المستخدم: " + (e.message || 'خطأ غير معروف'));
       }
     } catch (error: any) {

@@ -236,3 +236,14 @@ export interface Hospital {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  data?: any;
+  read: boolean;
+  created_at: string;
+  updated_at: string;
+}

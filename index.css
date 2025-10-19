@@ -2,8 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Cairo font with fallback */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+
+/* Performance optimizations */
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Cairo', 'Segoe UI', 'Tahoma', 'Arial', 'Helvetica Neue', sans-serif;
+  font-feature-settings: 'kern' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Prevent layout shift */
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Hardware acceleration for animations */
+.animate-fade-in,
+.animate-slide-up,
+.animate-slide-down,
+.animate-slide-right,
+.animate-scale-in,
+.animate-pulse-glow {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Optimize transitions */
+button,
+a,
+.hover-lift,
+.card-shine {
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 /* Custom Scrollbar */

@@ -22,13 +22,10 @@ const ApprovalsPage: React.FC = () => {
     const fetchAccounts = useCallback(async () => {
         setLoading(true);
         try {
-            console.log('Fetching accounts for role:', activeTab);
             const response = await api.post('/admin/get-pending-accounts', { role: activeTab });
-            console.log('API Response:', response);
             
             // Ensure we get the correct data from the response
             let accountsData = response.data || response || [];
-            console.log('Accounts data before filtering:', accountsData);
             
             // Filter accounts based on the active tab to ensure we only show the correct role
             if (Array.isArray(accountsData)) {
@@ -40,12 +37,10 @@ const ApprovalsPage: React.FC = () => {
                     }
                     return false;
                 });
-                console.log('Accounts data after filtering:', accountsData);
             }
             
             setAccounts(accountsData);
         } catch (error) {
-            console.error('Error fetching accounts:', error);
             showToast.error('فشل تحميل طلبات الموافقة');
             setAccounts([]);
         } finally {

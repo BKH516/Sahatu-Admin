@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning' | 'ghost';
@@ -20,20 +20,20 @@ const Button: React.FC<ButtonProps> = ({
 }) => {
   const baseStyles = "inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95";
   
-  const variants = {
+  const variants = useMemo(() => ({
     primary: "bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white shadow-lg shadow-cyan-500/50 focus:ring-cyan-500",
     secondary: "bg-slate-700 hover:bg-slate-600 text-white shadow-lg shadow-slate-700/50 focus:ring-slate-500",
     success: "bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white shadow-lg shadow-emerald-500/50 focus:ring-emerald-500",
     danger: "bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 text-white shadow-lg shadow-red-500/50 focus:ring-red-500",
     warning: "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/50 focus:ring-amber-500",
     ghost: "bg-transparent hover:bg-slate-800/50 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 focus:ring-slate-500",
-  };
+  }), []);
 
-  const sizes = {
+  const sizes = useMemo(() => ({
     sm: "px-3 py-1.5 text-xs",
     md: "px-4 py-2 text-sm",
     lg: "px-6 py-3 text-base",
-  };
+  }), []);
 
   return (
     <button
@@ -53,5 +53,6 @@ const Button: React.FC<ButtonProps> = ({
   );
 };
 
-export default Button;
+// Wrap with React.memo to prevent unnecessary re-renders
+export default React.memo(Button);
 

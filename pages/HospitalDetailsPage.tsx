@@ -314,7 +314,13 @@ const HospitalDetailsPage: React.FC = () => {
                                                     {reservation.user?.full_name || `مريض #${reservation.user_id}`}
                                                 </p>
                                                 <p className="text-xs text-slate-400">
-                                                    📞 {reservation.user?.account?.phone_number || 'غير متوفر'}
+                                                    📞 {reservation.user?.account?.phone_number || 
+                                                        reservation.user?.phone_number || 
+                                                        reservation.user?.account?.phone || 
+                                                        reservation.user?.phone || 
+                                                        reservation.user?.account?.mobile ||
+                                                        reservation.user?.mobile ||
+                                                        'غير متوفر'}
                                                 </p>
                                             </div>
                                         </td>
