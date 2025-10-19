@@ -30,33 +30,18 @@
     
     <title>Sahtee Admin Dashboard</title>
     
+    <!-- Preconnect to external domains for better performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="dns-prefetch" href="https://sahtee.evra-co.com">
     
 
 
     <!-- Security Event Listener -->
     <script>
-      // مراقبة انتهاكات CSP
-      document.addEventListener('securitypolicyviolation', (e) => {
-        console.error('CSP Violation:', {
-          blockedURI: e.blockedURI,
-          violatedDirective: e.violatedDirective,
-          originalPolicy: e.originalPolicy
-        });
-      });
-
       // منع فتح الصفحة في iframe
       if (window.self !== window.top) {
         window.top.location = window.self.location;
-      }
-
-      // تعطيل console في Production
-      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        console.log = function() {};
-        console.warn = function() {};
-        console.error = function() {};
       }
     </script>
     <script type="importmap">
@@ -69,8 +54,9 @@
   }
 }
 </script>
-    <script type="module" crossorigin src="/Sahatu-Admin/assets/index-DgqdtF12.js"></script>
-    <link rel="stylesheet" crossorigin href="/Sahatu-Admin/assets/index-BOHlJKc6.css">
+    <script type="module" crossorigin src="/Sahatu-Admin/assets/B9jYUa-E.js"></script>
+    <link rel="modulepreload" crossorigin href="/Sahatu-Admin/assets/B_r3OCU6.js">
+    <link rel="stylesheet" crossorigin href="/Sahatu-Admin/assets/CmRxLls8.css">
   </head>
   <body class="bg-slate-900 text-white">
     <noscript>
