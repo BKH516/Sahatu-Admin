@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Hospital } from '../types';
 import api from '../services/api';
@@ -9,151 +9,417 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/ui/Toast';
+import { runWithConcurrency, throwIfAborted } from '../utils/async';
+
+const LIST_PAGE_SIZE = 25;
+const DATASET_PAGE_SIZE = 200;
+const SEARCH_DEBOUNCE_MS = 350;
+const DATASET_CONCURRENCY = 4;
+
+interface PaginatedHospitals {
+    items: Hospital[];
+    currentPage: number;
+    lastPage: number;
+    total: number;
+    perPage: number;
+}
+
+interface ListState {
+    data: Hospital[];
+    loading: boolean;
+    totalPages: number;
+    total: number;
+}
+
+interface SearchState {
+    active: boolean;
+    loading: boolean;
+    data: Hospital[];
+    total: number;
+    error: string;
+}
+
+const toQueryString = (params: Record<string, string | number | undefined>) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            searchParams.append(key, String(value));
+        }
+    });
+    return searchParams.toString();
+};
+
+const extractHospitalsPayload = (response: any): PaginatedHospitals => {
+    const candidates = [response?.hospitals, response?.data, response];
+
+    let container = candidates.find(
+        (candidate) => candidate !== undefined && candidate !== null,
+    );
+
+    if (container && typeof container === 'object' && 'hospitals' in container) {
+        container = container.hospitals;
+    }
+
+    let data: Hospital[] = [];
+
+    if (Array.isArray(container?.data)) {
+        data = container.data as Hospital[];
+    } else if (Array.isArray(container)) {
+        data = container as Hospital[];
+    } else if (Array.isArray(response?.hospitals?.data)) {
+        data = response.hospitals.data as Hospital[];
+    } else if (Array.isArray(response?.data?.data)) {
+        data = response.data.data as Hospital[];
+    } else if (Array.isArray(response?.data)) {
+        data = response.data as Hospital[];
+    } else if (Array.isArray(response)) {
+        data = response as Hospital[];
+    }
+
+    const currentPage =
+        container?.current_page ??
+        response?.current_page ??
+        response?.data?.current_page ??
+        1;
+
+    const lastPage =
+        container?.last_page ??
+        response?.last_page ??
+        response?.data?.last_page ??
+        currentPage;
+
+    const total =
+        container?.total ??
+        response?.total ??
+        response?.data?.total ??
+        data.length;
+
+    const perPage =
+        container?.per_page ??
+        response?.per_page ??
+        response?.data?.per_page ??
+        data.length;
+
+    return {
+        items: data,
+        currentPage: Number(currentPage) || 1,
+        lastPage: Number(lastPage) || 1,
+        total: Number(total) || data.length,
+        perPage: Number(perPage) || data.length,
+    };
+};
+
+const hospitalMatchesQuery = (hospital: Hospital, query: string) => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return true;
+
+    const fields = [
+        hospital.full_name,
+        hospital.account?.email,
+        hospital.account?.phone_number,
+        hospital.address,
+    ];
+
+    return fields
+        .filter((value): value is string => !!value)
+        .some((value) => value.toLowerCase().includes(normalized));
+};
 
 const HospitalsPage: React.FC = () => {
     const navigate = useNavigate();
-    const [hospitals, setHospitals] = useState<Hospital[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { toasts, removeToast, success, error, warning } = useToast();
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newHospitalName, setNewHospitalName] = useState('');
     const [creating, setCreating] = useState(false);
     const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
     const [createdHospitalData, setCreatedHospitalData] = useState<any>(null);
-    const { toasts, removeToast, success, error, warning } = useToast();
 
-    // Pagination states
-    const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const [totalHospitals, setTotalHospitals] = useState(0);
+    const [listPage, setListPage] = useState(1);
+    const [listState, setListState] = useState<ListState>({
+        data: [],
+        loading: true,
+        totalPages: 1,
+        total: 0,
+    });
+
     const [searchTerm, setSearchTerm] = useState('');
-    const [searchQuery, setSearchQuery] = useState('');
-    const perPage = 20;
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+    const [searchState, setSearchState] = useState<SearchState>({
+        active: false,
+        loading: false,
+        data: [],
+        total: 0,
+        error: '',
+    });
 
-    const fetchHospitals = async (page: number = 1, search: string = '') => {
-        setLoading(true);
-        try {
-            let url = `/admin/hospital/all?page=${page}&per_page=${perPage}`;
-            if (search.trim()) {
-                url += `&search=${encodeURIComponent(search.trim())}`;
+    const [datasetVersion, setDatasetVersion] = useState(0);
+    const datasetCacheRef = useRef<Hospital[] | null>(null);
+    const datasetPromiseRef = useRef<Promise<Hospital[]> | null>(null);
+    const searchAbortRef = useRef<AbortController | null>(null);
+
+    const fetchHospitalsPage = useCallback(
+        async (page: number, perPage: number, signal?: AbortSignal): Promise<PaginatedHospitals> => {
+            const query = toQueryString({ page, per_page: perPage });
+            const response = await api.get(`/admin/hospital/all?${query}`, { signal });
+            return extractHospitalsPayload(response);
+        },
+        [],
+    );
+
+    const loadEntireDataset = useCallback(
+        async (signal?: AbortSignal): Promise<Hospital[]> => {
+            if (datasetCacheRef.current) {
+                return datasetCacheRef.current;
             }
-            const response = await api.get(url);
-                
-                let hospitalsData: any[] = [];
-            let paginationData = {
-                total: 0,
-                lastPage: 1,
-                currentPageNum: page
-            };
-                
-                // استخراج البيانات من الاستجابة
-                if (response.hospitals?.data && Array.isArray(response.hospitals.data)) {
-                    hospitalsData = response.hospitals.data;
-                paginationData.total = response.hospitals.total || hospitalsData.length;
-                paginationData.lastPage = response.hospitals.last_page || 1;
-                paginationData.currentPageNum = response.hospitals.current_page || page;
-                } else if (response.hospitals && Array.isArray(response.hospitals)) {
-                    hospitalsData = response.hospitals;
-                paginationData.total = hospitalsData.length;
-                } else if (response.data && Array.isArray(response.data)) {
-                    hospitalsData = response.data;
-                paginationData.total = hospitalsData.length;
-                } else if (Array.isArray(response)) {
-                    hospitalsData = response;
-                paginationData.total = hospitalsData.length;
+
+            if (datasetPromiseRef.current) {
+                return datasetPromiseRef.current;
             }
-            
-            // تصفية المشافي الصالحة
-            const validHospitals = hospitalsData.filter((hospital) => {
-                return hospital.id !== undefined && hospital.id !== null;
-            });
-            
-            setHospitals(validHospitals);
-            setTotalPages(paginationData.lastPage);
-            setTotalHospitals(paginationData.total);
-            setCurrentPage(paginationData.currentPageNum);
-            
-        } catch (err: any) {
-            error('فشل تحميل البيانات');
-        } finally {
-            setLoading(false);
-        }
-    };
+
+            const promise = (async () => {
+                throwIfAborted(signal);
+                const aggregated: Hospital[] = [];
+
+                const {
+                    items: firstItems,
+                    lastPage: firstLastPage,
+                    total: firstTotal,
+                    perPage: firstPerPage,
+                } = await fetchHospitalsPage(1, DATASET_PAGE_SIZE, signal);
+
+                aggregated.push(...firstItems);
+
+                const effectivePerPage = firstPerPage || DATASET_PAGE_SIZE;
+                const totalRecords = firstTotal || aggregated.length;
+                const estimatedTotalPages =
+                    effectivePerPage > 0 ? Math.ceil(totalRecords / effectivePerPage) : 1;
+                const targetLastPage = Math.max(firstLastPage || 1, estimatedTotalPages || 1);
+
+                if (targetLastPage > 1) {
+                    const remainingPages = Array.from({ length: targetLastPage - 1 }, (_, index) => index + 2);
+
+                    const pageChunks = await runWithConcurrency(
+                        remainingPages,
+                        DATASET_CONCURRENCY,
+                        async (page) => {
+                            throwIfAborted(signal);
+                            const { items } = await fetchHospitalsPage(page, DATASET_PAGE_SIZE, signal);
+                            return items;
+                        },
+                    );
+
+                    pageChunks.forEach((pageItems) => {
+                        aggregated.push(...pageItems);
+                    });
+                }
+
+                datasetCacheRef.current = aggregated;
+                return aggregated;
+            })();
+
+            datasetPromiseRef.current = promise;
+
+            try {
+                const result = await promise;
+                datasetPromiseRef.current = null;
+                return result;
+            } catch (err) {
+                datasetPromiseRef.current = null;
+                if (!signal?.aborted) {
+                    datasetCacheRef.current = null;
+                }
+                throw err;
+            }
+        },
+        [fetchHospitalsPage, datasetVersion],
+    );
+
+    const invalidateDataset = useCallback(() => {
+        datasetCacheRef.current = null;
+        datasetPromiseRef.current = null;
+        setDatasetVersion((prev) => prev + 1);
+    }, []);
 
     useEffect(() => {
-        fetchHospitals(1, searchQuery);
-    }, [searchQuery]);
+        const handler = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm.trim());
+        }, SEARCH_DEBOUNCE_MS);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
+
+    useEffect(() => {
+        if (debouncedSearchTerm) {
+            if (searchAbortRef.current) {
+                searchAbortRef.current.abort();
+            }
+
+            const controller = new AbortController();
+            searchAbortRef.current = controller;
+
+            setSearchState({
+                active: true,
+                loading: true,
+                data: [],
+                total: 0,
+                error: '',
+            });
+
+            loadEntireDataset(controller.signal)
+                .then((dataset) => {
+                    if (controller.signal.aborted) return;
+                    const results = dataset.filter((hospital) =>
+                        hospitalMatchesQuery(hospital, debouncedSearchTerm),
+                    );
+                    setSearchState({
+                        active: true,
+                        loading: false,
+                        data: results,
+                        total: results.length,
+                        error: '',
+                    });
+                })
+                .catch(() => {
+                    if (controller.signal.aborted) return;
+                    setSearchState({
+                        active: true,
+                        loading: false,
+                        data: [],
+                        total: 0,
+                        error: 'تعذر تحميل البيانات. يرجى المحاولة مرة أخرى.',
+                    });
+                })
+                .finally(() => {
+                    if (searchAbortRef.current === controller) {
+                        searchAbortRef.current = null;
+                    }
+                });
+
+            return () => controller.abort();
+        }
+
+        if (searchAbortRef.current) {
+            searchAbortRef.current.abort();
+            searchAbortRef.current = null;
+        }
+
+        setSearchState({
+            active: false,
+            loading: false,
+            data: [],
+            total: 0,
+            error: '',
+        });
+    }, [debouncedSearchTerm, loadEntireDataset, datasetVersion]);
+
+    useEffect(() => {
+        if (debouncedSearchTerm || datasetCacheRef.current || datasetPromiseRef.current) {
+            return;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => {
+            loadEntireDataset(controller.signal).catch(() => {
+                controller.abort();
+            });
+        }, 800);
+
+        return () => {
+            controller.abort();
+            window.clearTimeout(timeoutId);
+        };
+    }, [debouncedSearchTerm, loadEntireDataset]);
+
+    useEffect(() => {
+        if (debouncedSearchTerm) {
+            return;
+        }
+
+        const controller = new AbortController();
+
+        setListState((prev) => ({
+            ...prev,
+            loading: true,
+        }));
+
+        fetchHospitalsPage(listPage, LIST_PAGE_SIZE, controller.signal)
+            .then(({ items, lastPage, total }) => {
+                if (controller.signal.aborted) return;
+                setListState({
+                    data: items,
+                    loading: false,
+                    totalPages: lastPage,
+                    total,
+                });
+            })
+            .catch(() => {
+                if (controller.signal.aborted) return;
+                setListState((prev) => ({
+                    ...prev,
+                    loading: false,
+                }));
+            });
+
+        return () => controller.abort();
+    }, [debouncedSearchTerm, listPage, fetchHospitalsPage]);
+
+    const handlePageChange = (page: number) => {
+        if (searchState.active) return;
+        if (page >= 1 && page <= listState.totalPages) {
+            setListPage(page);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
 
     const handleCreateHospital = async () => {
         if (!newHospitalName.trim()) {
             warning('يرجى إدخال اسم المشفى');
             return;
         }
-        
+
         setCreating(true);
-        
+
         try {
             const formData = new FormData();
             formData.append('hospital_name', newHospitalName);
-            
+
             const response = await api.post('/admin/create-hospital-account', formData);
-            
+
             if (!response) {
                 throw new Error('لم يتم استلام رد من الخادم');
             }
-            
+
             setCreatedHospitalData(response);
             success('تم إنشاء حساب المشفى بنجاح');
             setNewHospitalName('');
             setIsModalOpen(false);
             setIsSuccessModalOpen(true);
-            // إعادة تحميل الصفحة الحالية
-            await fetchHospitals(currentPage, searchQuery);
-            
+            invalidateDataset();
+            setListPage(1);
         } catch (err: any) {
             let errorMessage = err?.message || 'حدث خطأ غير متوقع';
-            
+
             if (err?.message === 'Validation failed' || errorMessage.includes('Validation failed')) {
                 errorMessage = 'اسم المشفى موجود مسبقاً أو البيانات غير صحيحة';
             } else if (errorMessage.includes('already been taken')) {
                 errorMessage = 'اسم المشفى موجود مسبقاً، يرجى استخدام اسم آخر';
             }
-            
-            error(`${errorMessage}`);
-            
+
+            error(errorMessage);
         } finally {
             setCreating(false);
         }
     };
 
-    const handlePageChange = (page: number) => {
-        if (page >= 1 && page <= totalPages) {
-            fetchHospitals(page, searchQuery);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    };
-
-    const handleSearch = (value: string) => {
-        setSearchTerm(value);
-    };
-
-    // Debounce البحث
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (searchTerm !== searchQuery) {
-                setSearchQuery(searchTerm);
-                setCurrentPage(1); // إعادة تعيين الصفحة للأولى عند البحث
-            }
-        }, 500);
-        
-        return () => clearTimeout(timer);
-    }, [searchTerm, searchQuery]);
-
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
-            success('تم نسخ الرمز بنجاح');
-        }).catch(() => {
-            error('فشل نسخ الرمز');
-        });
+        navigator.clipboard
+            .writeText(text)
+            .then(() => {
+                success('تم نسخ الرمز بنجاح');
+            })
+            .catch(() => {
+                error('فشل نسخ الرمز');
+            });
     };
 
     const columns: Column<Hospital>[] = [
@@ -196,6 +462,19 @@ const HospitalsPage: React.FC = () => {
         },
     ];
 
+    const totalCount = searchState.active ? searchState.total : listState.total;
+    const tableData = searchState.active ? searchState.data : listState.data;
+    const tableLoading = searchState.active ? searchState.loading : listState.loading;
+    const tableEmptyMessage = searchState.active
+        ? searchState.loading
+            ? 'جاري البحث في المشافي...'
+            : searchState.error || 'لم يتم العثور على نتائج مطابقة.'
+        : 'لا توجد مشافي مسجلة';
+
+    const tableItemsPerPage = searchState.active
+        ? Math.max(tableData.length, 1)
+        : LIST_PAGE_SIZE;
+
     return (
         <div className="space-y-4 md:space-y-6 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -205,7 +484,7 @@ const HospitalsPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
                     <Badge variant="info" size="lg">
-                        {totalHospitals} مشفى
+                        {tableLoading ? '...' : `${totalCount} مشفى`}
                     </Badge>
                     <Button
                         variant="primary"
@@ -223,11 +502,10 @@ const HospitalsPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Search Bar */}
             <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                 <Input
                     value={searchTerm}
-                    onChange={(e) => handleSearch(e.target.value)}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="ابحث في جميع المشافي بالاسم، البريد، الهاتف..."
                     icon={
                         <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -235,56 +513,66 @@ const HospitalsPage: React.FC = () => {
                         </svg>
                     }
                 />
-                {searchQuery && (
-                    <div className="mt-2 text-sm text-slate-400">
-                        {loading ? (
+                {debouncedSearchTerm && (
+                    <div className="mt-2 text-sm text-slate-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        {searchState.loading ? (
                             <span className="flex items-center gap-2">
                                 <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    <path
+                                        className="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                    ></path>
                                 </svg>
-                                جاري البحث...
+                                جاري تحميل جميع المشافي لضمان دقة النتائج...
                             </span>
                         ) : (
                             <span>
-                                تم العثور على {totalHospitals} نتيجة
+                                {searchState.total > 0
+                                    ? `تم العثور على ${searchState.total} مشفى مطابق`
+                                    : 'لم يتم العثور على نتائج مطابقة'}
                             </span>
+                        )}
+                        {searchState.error && (
+                            <span className="text-red-400">{searchState.error}</span>
                         )}
                     </div>
                 )}
             </div>
 
             <Table
-                data={hospitals}
+                key={searchState.active ? 'search-results' : `page-${listPage}`}
+                data={tableData}
                 columns={columns}
-                loading={loading}
+                loading={tableLoading}
                 searchable={false}
-                emptyMessage={searchQuery ? "لم يتم العثور على مشافي مطابقة لبحثك" : "لا توجد مشافي مسجلة"}
-                itemsPerPage={perPage}
+                emptyMessage={tableEmptyMessage}
+                itemsPerPage={tableItemsPerPage}
+                onRowClick={(hospital) => navigate(`/hospitals/${hospital.id}`)}
             />
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {!searchState.active && listState.totalPages > 1 && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                     <div className="text-sm text-slate-400">
-                        الصفحة {currentPage} من {totalPages} ({totalHospitals} مشفى إجمالاً)
+                        الصفحة {listPage} من {listState.totalPages} ({listState.total} مشفى إجمالاً)
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                         <Button
                             variant="secondary"
                             size="sm"
                             onClick={() => handlePageChange(1)}
-                            disabled={currentPage === 1 || loading}
+                            disabled={listPage === 1 || listState.loading}
                         >
                             الأولى
                         </Button>
-                        
+
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            disabled={currentPage === 1 || loading}
+                            onClick={() => handlePageChange(listPage - 1)}
+                            disabled={listPage === 1 || listState.loading}
                             icon={
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
@@ -293,28 +581,27 @@ const HospitalsPage: React.FC = () => {
                         >
                             السابقة
                         </Button>
-                        
-                        {/* Page Numbers */}
+
                         <div className="hidden sm:flex items-center gap-1">
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            {Array.from({ length: Math.min(5, listState.totalPages) }, (_, i) => {
                                 let pageNum;
-                                if (totalPages <= 5) {
+                                if (listState.totalPages <= 5) {
                                     pageNum = i + 1;
-                                } else if (currentPage <= 3) {
+                                } else if (listPage <= 3) {
                                     pageNum = i + 1;
-                                } else if (currentPage >= totalPages - 2) {
-                                    pageNum = totalPages - 4 + i;
+                                } else if (listPage >= listState.totalPages - 2) {
+                                    pageNum = listState.totalPages - 4 + i;
                                 } else {
-                                    pageNum = currentPage - 2 + i;
+                                    pageNum = listPage - 2 + i;
                                 }
-                                
+
                                 return (
                                     <Button
                                         key={pageNum}
-                                        variant={currentPage === pageNum ? 'primary' : 'secondary'}
+                                        variant={listPage === pageNum ? 'primary' : 'secondary'}
                                         size="sm"
                                         onClick={() => handlePageChange(pageNum)}
-                                        disabled={loading}
+                                        disabled={listState.loading}
                                         className="min-w-[40px]"
                                     >
                                         {pageNum}
@@ -322,12 +609,12 @@ const HospitalsPage: React.FC = () => {
                                 );
                             })}
                         </div>
-                        
+
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            disabled={currentPage === totalPages || loading}
+                            onClick={() => handlePageChange(listPage + 1)}
+                            disabled={listPage === listState.totalPages || listState.loading}
                             icon={
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
@@ -336,12 +623,12 @@ const HospitalsPage: React.FC = () => {
                         >
                             التالية
                         </Button>
-                        
+
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => handlePageChange(totalPages)}
-                            disabled={currentPage === totalPages || loading}
+                            onClick={() => handlePageChange(listState.totalPages)}
+                            disabled={listPage === listState.totalPages || listState.loading}
                         >
                             الأخيرة
                         </Button>
@@ -349,7 +636,6 @@ const HospitalsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Create Hospital Modal */}
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => {
@@ -391,7 +677,6 @@ const HospitalsPage: React.FC = () => {
                 />
             </Modal>
 
-            {/* Success Modal with Unique Code */}
             <Modal
                 isOpen={isSuccessModalOpen}
                 onClose={() => {
@@ -401,8 +686,8 @@ const HospitalsPage: React.FC = () => {
                 title="✅ تم إنشاء حساب المشفى بنجاح"
                 footer={
                     <div className="flex gap-3 justify-end">
-                        <Button 
-                            variant="primary" 
+                        <Button
+                            variant="primary"
                             onClick={() => {
                                 setIsSuccessModalOpen(false);
                                 setCreatedHospitalData(null);
@@ -422,7 +707,6 @@ const HospitalsPage: React.FC = () => {
 
                     {createdHospitalData && (
                         <>
-                            {/* Hospital Name */}
                             {(createdHospitalData.hospital?.full_name || createdHospitalData.full_name) && (
                                 <div className="space-y-2">
                                     <label className="block text-sm font-medium text-slate-400">
@@ -436,7 +720,6 @@ const HospitalsPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Email */}
                             {(createdHospitalData.account?.email || createdHospitalData.email) && (
                                 <div className="space-y-2">
                                     <label className="block text-sm font-medium text-slate-400">
@@ -447,7 +730,9 @@ const HospitalsPage: React.FC = () => {
                                             {createdHospitalData.account?.email || createdHospitalData.email}
                                         </p>
                                         <button
-                                            onClick={() => copyToClipboard(createdHospitalData.account?.email || createdHospitalData.email)}
+                                            onClick={() =>
+                                                copyToClipboard(createdHospitalData.account?.email || createdHospitalData.email)
+                                            }
                                             className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 rounded-md text-sm transition-colors"
                                         >
                                             نسخ
@@ -456,7 +741,6 @@ const HospitalsPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Unique Code */}
                             {(createdHospitalData.unique_code || createdHospitalData.code || createdHospitalData.password) && (
                                 <div className="space-y-2">
                                     <label className="block text-sm font-medium text-slate-400">
@@ -467,7 +751,13 @@ const HospitalsPage: React.FC = () => {
                                             {createdHospitalData.unique_code || createdHospitalData.code || createdHospitalData.password}
                                         </p>
                                         <button
-                                            onClick={() => copyToClipboard(createdHospitalData.unique_code || createdHospitalData.code || createdHospitalData.password)}
+                                            onClick={() =>
+                                                copyToClipboard(
+                                                    createdHospitalData.unique_code ||
+                                                    createdHospitalData.code ||
+                                                    createdHospitalData.password
+                                                )
+                                            }
                                             className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-md font-medium transition-colors flex items-center gap-2"
                                         >
                                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -479,7 +769,6 @@ const HospitalsPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Phone Number */}
                             {(createdHospitalData.account?.phone_number || createdHospitalData.phone_number) && (
                                 <div className="space-y-2">
                                     <label className="block text-sm font-medium text-slate-400">
@@ -490,7 +779,12 @@ const HospitalsPage: React.FC = () => {
                                             {createdHospitalData.account?.phone_number || createdHospitalData.phone_number}
                                         </p>
                                         <button
-                                            onClick={() => copyToClipboard(createdHospitalData.account?.phone_number || createdHospitalData.phone_number)}
+                                            onClick={() =>
+                                                copyToClipboard(
+                                                    createdHospitalData.account?.phone_number ||
+                                                    createdHospitalData.phone_number
+                                                )
+                                            }
                                             className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 rounded-md text-sm transition-colors"
                                         >
                                             نسخ
@@ -499,7 +793,6 @@ const HospitalsPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Warning Message */}
                             <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mt-4">
                                 <div className="flex items-start gap-3">
                                     <svg className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -513,25 +806,27 @@ const HospitalsPage: React.FC = () => {
                         </>
                     )}
 
-                    {/* Debug: Show all response data if unique_code not found */}
-                    {createdHospitalData && !createdHospitalData.unique_code && !createdHospitalData.code && !createdHospitalData.password && (
-                        <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4 mt-4">
-                            <p className="text-slate-400 text-sm mb-2">معلومات المشفى المُنشأ:</p>
-                            <pre className="text-xs text-slate-300 overflow-auto max-h-60">
-                                {JSON.stringify(createdHospitalData, null, 2)}
-                            </pre>
-                        </div>
-                    )}
+                    {createdHospitalData &&
+                        !createdHospitalData.unique_code &&
+                        !createdHospitalData.code &&
+                        !createdHospitalData.password && (
+                            <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4 mt-4">
+                                <p className="text-slate-400 text-sm mb-2">معلومات المشفى المُنشأ:</p>
+                                <pre className="text-xs text-slate-300 overflow-auto max-h-60">
+                                    {JSON.stringify(createdHospitalData, null, 2)}
+                                </pre>
+                            </div>
+                        )}
                 </div>
             </Modal>
 
-            {/* Toast Notifications */}
-            {toasts.map((toast) => (
+            {toasts.map((toast, index) => (
                 <Toast
                     key={toast.id}
                     message={toast.message}
                     type={toast.type}
                     duration={toast.duration}
+                    offset={index}
                     onClose={() => removeToast(toast.id)}
                 />
             ))}
