@@ -142,12 +142,23 @@ function Table<T extends { id: number | string }>({
                   <th
                     key={index}
                     scope="col"
-                    className={`px-3 sm:px-4 md:px-6 py-3 md:py-4 whitespace-nowrap ${column.sortable ? 'cursor-pointer hover:text-cyan-400 transition-colors select-none' : ''} ${column.className || ''}`}
-                    onClick={() => handleSort(String(column.accessor), column.sortable)}
+                    className={`px-3 sm:px-4 md:px-6 py-3 md:py-4 whitespace-nowrap ${
+                      column.sortable && typeof column.accessor !== 'function'
+                        ? 'cursor-pointer hover:text-cyan-400 transition-colors select-none'
+                        : ''
+                    } ${column.className || ''}`}
+                    onClick={() =>
+                      handleSort(
+                        String(column.accessor),
+                        column.sortable && typeof column.accessor !== 'function'
+                      )
+                    }
                   >
                     <div className="flex items-center gap-2">
                       <span>{column.header}</span>
-                      {column.sortable && sortColumn === String(column.accessor) && (
+                      {column.sortable &&
+                        typeof column.accessor !== 'function' &&
+                        sortColumn === String(column.accessor) && (
                         <svg
                           className={`w-4 h-4 transform transition-transform ${sortDirection === 'desc' ? 'rotate-180' : ''}`}
                           fill="none"

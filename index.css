@@ -1,9 +1,9 @@
+/* Import Cairo font with fallback */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Import Cairo font with fallback */
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
 
 /* Performance optimizations */
 * {
@@ -202,7 +202,6 @@ a,
 
 .table-row-hover:hover {
   background: rgba(30, 41, 59, 0.8);
-  transform: scale(1.01);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 

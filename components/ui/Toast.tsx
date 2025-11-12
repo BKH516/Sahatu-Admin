@@ -5,9 +5,16 @@ interface ToastProps {
   type?: 'success' | 'error' | 'warning' | 'info';
   onClose: () => void;
   duration?: number;
+  offset?: number;
 }
 
-const Toast: React.FC<ToastProps> = ({ message, type = 'info', onClose, duration = 3000 }) => {
+const Toast: React.FC<ToastProps> = ({
+  message,
+  type = 'info',
+  onClose,
+  duration = 3000,
+  offset = 0,
+}) => {
   useEffect(() => {
     const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
@@ -43,16 +50,19 @@ const Toast: React.FC<ToastProps> = ({ message, type = 'info', onClose, duration
     info: "bg-gradient-to-r from-cyan-500/90 to-blue-500/90 border-cyan-400/50",
   };
 
+  const verticalOffset = 24 + offset * 88;
+
   return (
     <div
       className={`
-        fixed bottom-6 left-1/2 -translate-x-1/2 z-50
+        fixed right-6 z-50
         flex items-center gap-3 px-5 py-3 rounded-lg
         ${colors[type]} backdrop-blur-md
         border shadow-2xl
         animate-slide-up
         max-w-md
       `}
+      style={{ top: `${verticalOffset}px` }}
     >
       <div className="flex-shrink-0">
         {icons[type]}

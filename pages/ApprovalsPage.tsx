@@ -101,10 +101,27 @@ const ApprovalsPage: React.FC = () => {
         }
     };
     
-    const handleReject = (id: number) => {
-        if(window.confirm('هل أنت متأكد من رفض هذا الحساب؟')) {
+    const handleReject = async (id: number) => {
+        const confirmed = window.confirm('هل أنت متأكد من رفض هذا الحساب؟');
+        if (!confirmed) {
+            return;
+        }
+
+        const rejectAccount = async () => {
+            try {
+                await api.post(`/admin/rejectAccount/${id}`);
+                return;
+            } catch (error) {
+                await api.post('/admin/rejectAccount', { id });
+            }
+        };
+
+        try {
+            await rejectAccount();
             setAccounts(prev => prev.filter(acc => acc.id !== id));
             showToast.warning('تم رفض الحساب');
+        } catch (error: any) {
+            showToast.error(`فشل رفض الحساب: ${error?.message || 'حدث خطأ غير متوقع'}`);
         }
     };
 
@@ -492,12 +509,13 @@ const ApprovalsPage: React.FC = () => {
             </Modal>
 
             {/* Toast Notifications */}
-            {toasts.map((toast) => (
+            {toasts.map((toast, index) => (
                 <Toast
                     key={toast.id}
                     message={toast.message}
                     type={toast.type}
                     duration={toast.duration}
+                    offset={index}
                     onClose={() => removeToast(toast.id)}
                 />
             ))}

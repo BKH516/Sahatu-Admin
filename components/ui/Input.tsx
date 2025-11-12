@@ -13,12 +13,16 @@ const Input: React.FC<InputProps> = ({
   icon,
   helperText,
   className = '',
+  id,
   ...props
 }) => {
+  const generatedId = React.useId();
+  const inputId = id ?? generatedId;
+
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor={inputId} className="block text-sm font-medium text-slate-300 mb-2">
           {label}
         </label>
       )}
@@ -29,6 +33,7 @@ const Input: React.FC<InputProps> = ({
           </div>
         )}
         <input
+          id={inputId}
           className={`
             w-full px-4 py-2.5 
             ${icon ? 'pr-10' : ''} 

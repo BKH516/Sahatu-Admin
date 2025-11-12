@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
-import SearchBar from '../ui/SearchBar';
+import GlobalSearch from '../ui/GlobalSearch';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -10,7 +10,6 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { admin, logout } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications();
-  const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
@@ -96,14 +95,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
         </svg>
       </button>
 
-      <div className="flex items-center gap-2 md:gap-4 flex-1 max-w-2xl">
-        <SearchBar 
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="ابحث..."
-          className="hidden sm:block"
-        />
+      <div className="flex-1 px-2 md:px-4 max-w-3xl hidden sm:block">
+        <GlobalSearch />
       </div>
+
+      {/* Spacer for mobile */}
+      <div className="flex-1 sm:hidden"></div>
       
       <div className="flex items-center gap-2 md:gap-4">
         {/* Notifications */}

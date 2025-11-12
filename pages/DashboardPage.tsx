@@ -82,7 +82,7 @@ const DashboardPage: React.FC = () => {
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearTimeout(timer);
+        return () => clearInterval(timer);
     }, []);
 
     useEffect(() => {

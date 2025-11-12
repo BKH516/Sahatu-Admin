@@ -228,12 +228,13 @@ const SpecializationsPage: React.FC = () => {
             )}
 
             {/* Toast Notifications */}
-            {toasts.map((toast) => (
+            {toasts.map((toast, index) => (
                 <Toast
                     key={toast.id}
                     message={toast.message}
                     type={toast.type}
                     duration={toast.duration}
+                    offset={index}
                     onClose={() => removeToast(toast.id)}
                 />
             ))}
