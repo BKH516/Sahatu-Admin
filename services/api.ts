@@ -1,10 +1,12 @@
 import { 
   apiRateLimiter, 
-  isTokenExpired, 
   isValidJWT, 
+  isTokenExpired,
   logSecurityEvent,
-  sanitizeInput 
+  sanitizeInput,
+  sanitizePayload,
 } from '../utils/security';
+import { secureStorage } from '../utils/secureStorage';
 
 // Use relative URL in development (will be proxied), absolute URL in production
 const API_BASE_URL = import.meta.env.DEV ? '/api' : 'https://sahtee.evra-co.com/api';
@@ -14,38 +16,12 @@ const REQUEST_TIMEOUT = 30000; // 30 ثانية
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 ثانية
 
-const getAuthToken = () => localStorage.getItem('sahtee_token');
-const setAuthToken = (token: string) => localStorage.setItem('sahtee_token', token);
-const removeAuthToken = () => localStorage.removeItem('sahtee_token');
+const TOKEN_STORAGE_KEY = 'auth_token';
 
 // دالة لتأخير التنفيذ (للـ retry)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // التحقق من صحة التوكن قبل كل طلب
-const validateToken = (silent = false): boolean => {
-  const token = getAuthToken();
-  
-  if (!token) return false;
-  
-  if (!isValidJWT(token)) {
-    if (!silent) {
-      logSecurityEvent('INVALID_JWT_TOKEN', { action: 'Token validation failed' });
-    }
-    removeAuthToken();
-    return false;
-  }
-  
-  if (isTokenExpired(token)) {
-    if (!silent) {
-      logSecurityEvent('EXPIRED_TOKEN', { action: 'Token expired' });
-    }
-    removeAuthToken();
-    return false;
-  }
-  
-  return true;
-};
-
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
   skipRateLimit?: boolean;
@@ -71,10 +47,15 @@ const api = {
   // تحديث التوكن
   async refreshToken(): Promise<string | null> {
     try {
+      const existingToken = await secureStorage.getItem(TOKEN_STORAGE_KEY);
+      if (!existingToken) {
+        return null;
+      }
+
       const response = await fetch(`${API_BASE_URL}/admin/refresh`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${getAuthToken()}`,
+          'Authorization': `Bearer ${existingToken}`,
           'Content-Type': 'application/json',
         },
       });
@@ -83,12 +64,12 @@ const api = {
 
       const data = await response.json();
       if (data.access_token) {
-        setAuthToken(data.access_token);
+        await secureStorage.setItem(TOKEN_STORAGE_KEY, data.access_token);
         return data.access_token;
       }
       return null;
     } catch (error) {
-      removeAuthToken();
+      secureStorage.removeItem(TOKEN_STORAGE_KEY);
       logSecurityEvent('TOKEN_REFRESH_FAILED', { error });
       window.location.hash = '#/login';
       return null;
@@ -113,7 +94,10 @@ const api = {
     const url = `${API_BASE_URL}${endpoint}`;
     
     // الحصول على التوكن
-    let token = getAuthToken();
+    let token: string | null = null;
+    if (!skipAuth) {
+      token = await secureStorage.getItem(TOKEN_STORAGE_KEY);
+    }
     
     // التحقق من التوكن للطلبات المحمية
     if (!skipAuth) {
@@ -122,10 +106,21 @@ const api = {
       }
       
       // التحقق من صحة التوكن (بدون حذفه)
-      if (token && !isValidJWT(token)) {
+      if (!isValidJWT(token)) {
         logSecurityEvent('INVALID_JWT_TOKEN', { action: 'Token validation failed', endpoint });
-        removeAuthToken();
+        secureStorage.removeItem(TOKEN_STORAGE_KEY);
         throw new Error('Invalid authentication token');
+      }
+
+      if (isTokenExpired(token)) {
+        logSecurityEvent('EXPIRED_TOKEN', { action: 'Token expired', endpoint, strategy: 'preflight-refresh' });
+        const refreshedToken = await this.refreshToken();
+        if (refreshedToken) {
+          token = refreshedToken;
+        } else {
+          secureStorage.removeItem(TOKEN_STORAGE_KEY);
+          throw new Error('Authentication token expired');
+        }
       }
       
       // التحقق من انتهاء الصلاحية (نسمح بإرسال التوكن، الخادم سيقرر)
@@ -239,19 +234,37 @@ const api = {
   },
 
   post(endpoint: string, body?: any, options?: RequestOptions) {
-    const isFormData = body instanceof FormData;
+    if (body instanceof FormData) {
+      const sanitizedFormData = new FormData();
+      body.forEach((value, key) => {
+        if (typeof value === 'string') {
+          sanitizedFormData.append(key, sanitizeInput(value));
+        } else {
+          sanitizedFormData.append(key, value);
+        }
+      });
+
+      return this.request(endpoint, {
+        ...options,
+        method: 'POST',
+        body: sanitizedFormData,
+      });
+    }
+
+    const sanitizedBody = body ? sanitizePayload(body) : body;
     return this.request(endpoint, {
       ...options,
       method: 'POST',
-      body: isFormData ? body : JSON.stringify(body),
+      body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
     });
   },
   
   put(endpoint: string, body?: any, options?: RequestOptions) {
+    const sanitizedBody = body ? sanitizePayload(body) : body;
     return this.request(endpoint, {
       ...options,
       method: 'PUT',
-      body: JSON.stringify(body),
+      body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
     });
   },
 

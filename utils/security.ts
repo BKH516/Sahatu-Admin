@@ -14,30 +14,35 @@ export const sanitizeInput = (input: string): string => {
     .trim();
 };
 
-// تنظيف HTML مع السماح ببعض العناصر الآمنة
-export const sanitizeHtml = (html: string): string => {
-  if (!html) return '';
-  
-  const div = document.createElement('div');
-  div.textContent = html;
-  return div.innerHTML;
+// تنظيف البيانات قبل إرسالها إلى الخادم
+export const sanitizePayload = <T>(payload: T): T => {
+  if (payload === null || payload === undefined) {
+    return payload;
+  }
+
+  if (typeof payload === 'string') {
+    return sanitizeInput(payload) as T;
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.map(item => sanitizePayload(item)) as T;
+  }
+
+  if (typeof payload === 'object') {
+    const sanitizedObject: Record<string | number | symbol, unknown> = {};
+    Object.entries(payload as Record<string, unknown>).forEach(([key, value]) => {
+      sanitizedObject[key] = sanitizePayload(value);
+    });
+    return sanitizedObject as T;
+  }
+
+  return payload;
 };
 
 // التحقق من صحة البريد الإلكتروني
 export const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
-};
-
-// التحقق من قوة كلمة المرور
-export const isStrongPassword = (password: string): boolean => {
-  // على الأقل 8 أحرف، حرف كبير، حرف صغير، رقم
-  const minLength = password.length >= 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasNumber = /[0-9]/.test(password);
-  
-  return minLength && hasUpperCase && hasLowerCase && hasNumber;
 };
 
 // Rate Limiting - منع الطلبات الزائدة
@@ -86,7 +91,6 @@ class RateLimiter {
 // Rate limiters لأنواع مختلفة من الطلبات
 export const apiRateLimiter = new RateLimiter(100, 60000); // 100 طلب في الدقيقة
 export const loginRateLimiter = new RateLimiter(5, 300000); // 5 محاولات تسجيل دخول في 5 دقائق
-export const sensitiveActionRateLimiter = new RateLimiter(10, 60000); // 10 إجراءات حساسة في الدقيقة
 
 // CSRF Token Generation
 export const generateCSRFToken = (): string => {
@@ -95,53 +99,10 @@ export const generateCSRFToken = (): string => {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 };
 
-// التحقق من CSRF Token
-export const validateCSRFToken = (token: string, storedToken: string): boolean => {
-  return token === storedToken && token.length === 64;
-};
-
 // Session Security - التحقق من صحة الجلسة
 export const isSessionValid = (lastActivity: number, maxInactivity: number = 1800000): boolean => {
   // maxInactivity default: 30 دقيقة
   return Date.now() - lastActivity < maxInactivity;
-};
-
-// تشفير البيانات الحساسة في localStorage (XOR cipher بسيط)
-export const encryptData = (data: string, key: string): string => {
-  let encrypted = '';
-  for (let i = 0; i < data.length; i++) {
-    encrypted += String.fromCharCode(
-      data.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-    );
-  }
-  return btoa(encrypted); // Base64 encode
-};
-
-export const decryptData = (encryptedData: string, key: string): string => {
-  try {
-    const decoded = atob(encryptedData);
-    let decrypted = '';
-    for (let i = 0; i < decoded.length; i++) {
-      decrypted += String.fromCharCode(
-        decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-      );
-    }
-    return decrypted;
-  } catch {
-    return '';
-  }
-};
-
-// Content Security Policy Violation Reporter
-export const reportCSPViolation = (violation: SecurityPolicyViolationEvent): void => {
-  // تم تعطيل console logs - يمكن إرسال للخادم للمراقبة
-  // يمكن إرسال التقرير إلى الخادم هنا
-  // api.post('/security/csp-violation', { 
-  //   blockedURI: violation.blockedURI,
-  //   violatedDirective: violation.violatedDirective,
-  //   originalPolicy: violation.originalPolicy,
-  //   timestamp: new Date().toISOString(),
-  // }).catch(() => {});
 };
 
 // منع Clickjacking
@@ -149,33 +110,6 @@ export const preventClickjacking = (): void => {
   if (window.self !== window.top) {
     // الصفحة محملة في iframe - منعها
     window.top!.location = window.self.location;
-  }
-};
-
-// تنظيف وإزالة البيانات الحساسة عند إغلاق المتصفح
-export const secureCleanup = (): void => {
-  // إزالة البيانات الحساسة
-  const sensitiveKeys = ['sahtee_token', 'csrf_token', 'session_data'];
-  sensitiveKeys.forEach(key => {
-    try {
-      localStorage.removeItem(key);
-      sessionStorage.removeItem(key);
-    } catch (e) {
-      // Silent cleanup - no console logs
-    }
-  });
-};
-
-// التحقق من صحة URL لمنع Open Redirect
-export const isSafeUrl = (url: string, allowedDomains: string[]): boolean => {
-  try {
-    const urlObj = new URL(url);
-    return allowedDomains.some(domain => 
-      urlObj.hostname === domain || urlObj.hostname.endsWith('.' + domain)
-    );
-  } catch {
-    // URL نسبي أو غير صحيح
-    return !url.startsWith('http://') && !url.startsWith('https://');
   }
 };
 
@@ -198,21 +132,10 @@ export const logSecurityEvent = (event: string, details: any): void => {
   // }
 };
 
-// منع نسخ كلمات المرور
-export const preventPasswordCopy = (inputElement: HTMLInputElement): void => {
-  inputElement.addEventListener('copy', (e) => {
-    e.preventDefault();
-    logSecurityEvent('PASSWORD_COPY_ATTEMPT', { field: inputElement.name });
-  });
-  
-  inputElement.addEventListener('cut', (e) => {
-    e.preventDefault();
-    logSecurityEvent('PASSWORD_CUT_ATTEMPT', { field: inputElement.name });
-  });
-};
-
-// التحقق من Secure Context (HTTPS)
 export const isSecureContext = (): boolean => {
+  if (typeof window === 'undefined') {
+    return true;
+  }
   return window.isSecureContext;
 };
 
@@ -252,7 +175,13 @@ export const decodeJWT = (token: string): any => {
 // التحقق من انتهاء صلاحية JWT Token
 export const isTokenExpired = (token: string): boolean => {
   const decoded = decodeJWT(token);
-  if (!decoded || !decoded.exp) return true;
+  if (!decoded || !decoded.exp) {
+    logSecurityEvent('TOKEN_EXPIRY_UNDETERMINED', {
+      hasPayload: !!decoded,
+      hasExpiration: !!decoded?.exp,
+    });
+    return false;
+  }
   
   return Date.now() >= decoded.exp * 1000;
 };

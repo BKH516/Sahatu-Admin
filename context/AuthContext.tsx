@@ -10,6 +10,7 @@ import {
   preventClickjacking,
   getTokenTimeRemaining,
 } from '../utils/security';
+import { secureStorage, SECURE_STORAGE_PREFIX } from '../utils/secureStorage';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -26,20 +27,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 دقيقة من عدم النشاط
 const TOKEN_REFRESH_INTERVAL = 5 * 60 * 1000; // تحديث التوكن كل 5 دقائق
 const SESSION_CHECK_INTERVAL = 60 * 1000; // فحص الجلسة كل دقيقة
+const TOKEN_STORAGE_KEY = 'auth_token';
+const LAST_ACTIVITY_KEY = 'sahtee_last_activity';
+const CSRF_STORAGE_KEY = 'csrf_token';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionTimeRemaining, setSessionTimeRemaining] = useState(0);
   const lastActivityRef = useRef<number>(Date.now());
-  const activityTimeoutRef = useRef<NodeJS.Timeout>();
   const tokenRefreshIntervalRef = useRef<NodeJS.Timeout>();
   const sessionCheckIntervalRef = useRef<NodeJS.Timeout>();
 
   // تحديث آخر نشاط
   const updateActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
-    localStorage.setItem('sahtee_last_activity', String(Date.now()));
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
   }, []);
 
   // تسجيل الخروج التلقائي
@@ -51,7 +54,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // فحص صحة الجلسة
   const checkSession = useCallback(() => {
-    const lastActivity = Number(localStorage.getItem('sahtee_last_activity')) || lastActivityRef.current;
+    const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY)) || lastActivityRef.current;
     
     if (!isSessionValid(lastActivity, SESSION_TIMEOUT)) {
       autoLogout();
@@ -67,7 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // تحديث التوكن تلقائياً
   const refreshTokenAutomatically = useCallback(async () => {
-    const token = localStorage.getItem('sahtee_token');
+    const token = await secureStorage.getItem(TOKEN_STORAGE_KEY);
     if (!token) return;
 
     const timeRemaining = getTokenTimeRemaining(token);
@@ -94,9 +97,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       checkSession();
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSession();
+        refreshTokenAutomatically();
+      }
+    };
+
     activities.forEach(event => {
       document.addEventListener(event, handleActivity);
     });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // فحص دوري للجلسة
     sessionCheckIntervalRef.current = setInterval(() => {
@@ -106,12 +117,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, SESSION_CHECK_INTERVAL);
 
     // تحديث دوري للتوكن
-    tokenRefreshIntervalRef.current = setInterval(refreshTokenAutomatically, TOKEN_REFRESH_INTERVAL);
+    tokenRefreshIntervalRef.current = setInterval(() => {
+      refreshTokenAutomatically();
+    }, TOKEN_REFRESH_INTERVAL);
 
     return () => {
       activities.forEach(event => {
         document.removeEventListener(event, handleActivity);
       });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (sessionCheckIntervalRef.current) {
         clearInterval(sessionCheckIntervalRef.current);
       }
@@ -126,11 +140,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     preventClickjacking();
   }, []);
 
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === `${SECURE_STORAGE_PREFIX}${TOKEN_STORAGE_KEY}` && event.newValue === null) {
+        autoLogout();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [autoLogout]);
+
   // إنشاء CSRF Token عند تحميل التطبيق
   useEffect(() => {
-    if (!localStorage.getItem('csrf_token')) {
+    if (!localStorage.getItem(CSRF_STORAGE_KEY)) {
       const csrfToken = generateCSRFToken();
-      localStorage.setItem('csrf_token', csrfToken);
+      localStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
       
       // إضافة meta tag للـ CSRF token
       const metaTag = document.createElement('meta');
@@ -142,7 +168,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('sahtee_token');
+      const token = await secureStorage.getItem(TOKEN_STORAGE_KEY);
       if (token) {
         try {
           const adminData = await api.get('/admin/me');
@@ -150,7 +176,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           updateActivity();
           logSecurityEvent('AUTH_CHECK_SUCCESS', { adminId: adminData.id });
         } catch (error) {
-          localStorage.removeItem('sahtee_token');
+          secureStorage.removeItem(TOKEN_STORAGE_KEY);
           setAdmin(null);
           logSecurityEvent('AUTH_CHECK_FAILED', { error });
         }
@@ -189,15 +215,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw new Error("فشل تسجيل الدخول، لم يتم استلام التوكن");
       }
 
-      // حفظ التوكن
-      localStorage.setItem('sahtee_token', response.access_token);
+      // حفظ التوكن بشكل آمن
+      await secureStorage.setItem(TOKEN_STORAGE_KEY, response.access_token);
       updateActivity();
       
-      // الانتظار قليلاً للتأكد من حفظ التوكن
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
       // التحقق من أن التوكن محفوظ فعلاً
-      const savedToken = localStorage.getItem('sahtee_token');
+      const savedToken = await secureStorage.getItem(TOKEN_STORAGE_KEY);
       if (!savedToken || savedToken !== response.access_token) {
         throw new Error('فشل في حفظ التوكن');
       }
@@ -223,7 +246,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       } catch (e: any) {
         // حذف التوكن إذا فشل الحصول على بيانات المستخدم
-        localStorage.removeItem('sahtee_token');
+        secureStorage.removeItem(TOKEN_STORAGE_KEY);
         throw new Error("فشل في الحصول على بيانات المستخدم: " + (e.message || 'خطأ غير معروف'));
       }
     } catch (error: any) {
@@ -238,7 +261,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async () => {
     try {
       // محاولة إبلاغ الخادم بتسجيل الخروج (لكن لا نفشل إذا لم ينجح)
-      const token = localStorage.getItem('sahtee_token');
+      const token = await secureStorage.getItem(TOKEN_STORAGE_KEY);
       if (token) {
         await api.post('/admin/logout').catch(() => {
           // نتجاهل الأخطاء في تسجيل الخروج من الخادم
@@ -246,14 +269,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       logSecurityEvent('LOGOUT_SUCCESS', { adminId: admin?.id });
     } catch(error) {
-      // لا نسجل خطأ إذا لم يكن هناك توكن أصلاً
-      if (localStorage.getItem('sahtee_token')) {
+      const existingToken = await secureStorage.getItem(TOKEN_STORAGE_KEY);
+      if (existingToken) {
         logSecurityEvent('LOGOUT_ERROR', { error });
       }
     } finally {
       setAdmin(null);
-      localStorage.removeItem('sahtee_token');
-      localStorage.removeItem('sahtee_last_activity');
+      secureStorage.removeItem(TOKEN_STORAGE_KEY);
+      secureStorage.clearSecureNamespace();
+      secureStorage.clearSessionKey();
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
       
       // تنظيف الـ intervals
       if (sessionCheckIntervalRef.current) {

@@ -11,7 +11,7 @@ const HospitalServicesPage: React.FC = () => {
     const [currentService, setCurrentService] = useState<Partial<HospitalService>>({});
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
-    const { toasts, showToast, removeToast } = useToast();
+    const { toasts, removeToast, success, error, warning } = useToast();
 
     const fetchServices = async () => {
         setLoading(true);
@@ -41,25 +41,25 @@ const HospitalServicesPage: React.FC = () => {
 
     const handleSave = async (serviceName: string) => {
         if (!serviceName.trim()) {
-            showToast.warning('يرجى إدخال اسم الخدمة.');
+            warning('يرجى إدخال اسم الخدمة.');
             return;
         }
         try {
             if (currentService.id) {
                 // Update (PUT) uses JSON as per Postman raw body
                 await api.put(`/admin/service/${currentService.id}`, { service_name: serviceName });
-                showToast.success('تم تحديث الخدمة بنجاح');
+                success('تم تحديث الخدمة بنجاح');
             } else {
                 // Create (POST) uses FormData as per Postman formdata body
                 const formData = new FormData();
                 formData.append('service_name', serviceName);
                 await api.post('/admin/service', formData);
-                showToast.success('تم إضافة الخدمة بنجاح');
+                success('تم إضافة الخدمة بنجاح');
             }
             fetchServices();
             handleCloseModal();
-        } catch (error: any) {
-            showToast.error(`فشل الحفظ: ${error.message}`);
+        } catch (err: any) {
+            error(`فشل الحفظ: ${err?.message || 'خطأ غير معروف'}`);
         }
     };
 
@@ -67,10 +67,10 @@ const HospitalServicesPage: React.FC = () => {
         if (window.confirm('هل أنت متأكد من رغبتك في حذف هذه الخدمة؟')) {
             try {
                 await api.delete(`/admin/service/${id}`);
-                showToast.success('تم حذف الخدمة بنجاح');
+                success('تم حذف الخدمة بنجاح');
                 fetchServices();
-            } catch (error: any) {
-                showToast.error(`فشل الحذف: ${error.message}`);
+            } catch (err: any) {
+                error(`فشل الحذف: ${err?.message || 'خطأ غير معروف'}`);
             }
         }
     };
@@ -134,6 +134,16 @@ const HospitalServicesPage: React.FC = () => {
         return pages;
     };
 
+    const formatDate = (value?: string | null) => {
+        if (!value) return '-';
+        const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+        const date = new Date(normalized);
+        if (Number.isNaN(date.getTime())) {
+            return value;
+        }
+        return date.toLocaleDateString('ar-EG');
+    };
+
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
@@ -160,7 +170,15 @@ const HospitalServicesPage: React.FC = () => {
                                     <tr key={service.id} className="border-b border-slate-700 hover:bg-slate-800">
                                         <td className="px-6 py-4">{service.id}</td>
                                         <td className="px-6 py-4 font-medium">{service.service_name}</td>
-                                        <td className="px-6 py-4">{service.created_at ? new Date(service.created_at).toLocaleDateString('ar-EG') : '-'}</td>
+                                        <td className="px-6 py-4">
+                                            {formatDate(
+                                                service.created_at ??
+                                                (service as any).createdAt ??
+                                                service.updated_at ??
+                                                (service as any).updatedAt ??
+                                                null
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 flex space-x-2 space-x-reverse">
                                             <button onClick={() => handleOpenModal(service)} className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded-md">تعديل</button>
                                             <button onClick={() => handleDelete(service.id)} className="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 rounded-md">حذف</button>

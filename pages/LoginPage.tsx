@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
+import { sanitizeInput } from '../utils/security';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -14,13 +15,20 @@ const LoginPage: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) {
+    const sanitizedEmail = sanitizeInput(email);
+
+    if (!sanitizedEmail || !password.trim()) {
       setError('الرجاء إدخال البريد الإلكتروني وكلمة المرور.');
       return;
     }
+
+    if (sanitizedEmail !== email) {
+      setEmail(sanitizedEmail);
+    }
+
     setLoading(true);
     try {
-        await login(email, password);
+        await login(sanitizedEmail, password);
     } catch (err: any) {
         setError(err.message || 'فشل تسجيل الدخول. الرجاء التحقق من بيانات الاعتماد.');
     } finally {
@@ -63,7 +71,7 @@ const LoginPage: React.FC = () => {
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setEmail(sanitizeInput(e.target.value))}
               label="البريد الإلكتروني"
               placeholder="admin@example.com"
               error={error && !email ? 'الرجاء إدخال البريد الإلكتروني' : ''}

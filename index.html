@@ -6,16 +6,10 @@
     <!-- Security Headers -->
     <!-- Content Security Policy - حماية من XSS وتحميل محتوى غير موثوق -->
     <!-- ملاحظة: بعض directives مثل frame-ancestors يجب أن تُرسل من الخادم -->
-    <meta http-equiv="Content-Security-Policy" content="
-      default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://aistudiocdn.com;
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      font-src 'self' https://fonts.gstatic.com;
-      img-src 'self' data: https: blob:;
-      connect-src 'self' https://sahtee.evra-co.com;
-      base-uri 'self';
-      form-action 'self';
-    ">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://aistudiocdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://sahtee.evra-co.com https://aistudiocdn.com ws://localhost:* http://localhost:*; base-uri 'self'; form-action 'self';"
+    >
     
     <!-- X-Content-Type-Options - منع MIME type sniffing -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">

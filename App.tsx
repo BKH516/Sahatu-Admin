@@ -3,6 +3,7 @@ import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { useSecurityMonitor } from './hooks/useSecurityMonitor';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/layout/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
@@ -18,9 +19,11 @@ import SpecializationsPage from './pages/SpecializationsPage';
 import HospitalServicesPage from './pages/HospitalServicesPage';
 import NotFoundPage from './pages/NotFoundPage';
 import UnauthorizedPage from './pages/UnauthorizedPage';
-import SessionTimeout from './components/security/SessionTimeout';
+import { SessionTimeout } from './components/security';
 
 const App: React.FC = () => {
+  useSecurityMonitor();
+
   return (
     <AuthProvider>
       <NotificationProvider>
@@ -47,24 +50,24 @@ const AppRoutes: React.FC = () => {
       <Routes>
         <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" />} />
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
-        {isAuthenticated ? (
-          <Route path="/" element={<DashboardLayout />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="approvals" element={<ApprovalsPage />} />
-            <Route path="doctors" element={<DoctorsPage />} />
-            <Route path="doctors/:id" element={<DoctorDetailsPage />} />
-            <Route path="nurses" element={<NursesPage />} />
-            <Route path="nurses/:id" element={<NurseDetailsPage />} />
-            <Route path="hospitals" element={<HospitalsPage />} />
-            <Route path="hospitals/:id" element={<HospitalDetailsPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="specializations" element={<SpecializationsPage />} />
-            <Route path="hospital-services" element={<HospitalServicesPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
-        ) : (
-          <Route path="*" element={<Navigate to="/login" />} />
-        )}
+        <Route
+          path="/"
+          element={isAuthenticated ? <DashboardLayout /> : <Navigate to="/login" replace />}
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="approvals" element={<ApprovalsPage />} />
+          <Route path="doctors" element={<DoctorsPage />} />
+          <Route path="doctors/:id" element={<DoctorDetailsPage />} />
+          <Route path="nurses" element={<NursesPage />} />
+          <Route path="nurses/:id" element={<NurseDetailsPage />} />
+          <Route path="hospitals" element={<HospitalsPage />} />
+          <Route path="hospitals/:id" element={<HospitalDetailsPage />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="specializations" element={<SpecializationsPage />} />
+          <Route path="hospital-services" element={<HospitalServicesPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+        {!isAuthenticated && <Route path="*" element={<Navigate to="/login" replace />} />}
       </Routes>
     </HashRouter>
   );
