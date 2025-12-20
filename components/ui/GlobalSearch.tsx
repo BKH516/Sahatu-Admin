@@ -401,7 +401,7 @@ const GlobalSearch: React.FC = () => {
         navigate(`/nurses/${result.id}`);
         break;
       case 'user':
-        // يمكن إضافة صفحة تفاصيل المستخدم هنا
+        navigate(`/users/${result.id}`, { state: { user: result.data } });
         break;
     }
   };

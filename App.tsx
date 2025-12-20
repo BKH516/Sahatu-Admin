@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useMemo } from 'react';
+import { createHashRouter, RouterProvider, Navigate, RouteObject } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { useSecurityMonitor } from './hooks/useSecurityMonitor';
@@ -13,10 +13,13 @@ import DoctorDetailsPage from './pages/DoctorDetailsPage';
 import HospitalsPage from './pages/HospitalsPage';
 import HospitalDetailsPage from './pages/HospitalDetailsPage';
 import UsersPage from './pages/UsersPage';
+import UserDetailsPage from './pages/UserDetailsPage';
 import NursesPage from './pages/NursesPage';
 import NurseDetailsPage from './pages/NurseDetailsPage';
 import SpecializationsPage from './pages/SpecializationsPage';
 import HospitalServicesPage from './pages/HospitalServicesPage';
+import EntityRatingsPage from './pages/EntityRatingsPage';
+import ProvincesPage from './pages/ProvincesPage';
 import NotFoundPage from './pages/NotFoundPage';
 import UnauthorizedPage from './pages/UnauthorizedPage';
 import { SessionTimeout } from './components/security';
@@ -37,6 +40,54 @@ const App: React.FC = () => {
 const AppRoutes: React.FC = () => {
   const { isAuthenticated, loading } = useAuth();
 
+  const router = useMemo(() => {
+    const baseRoutes: RouteObject[] = [
+      {
+        path: '/login',
+        element: !isAuthenticated ? <LoginPage /> : <Navigate to="/" replace />,
+      },
+      {
+        path: '/unauthorized',
+        element: <UnauthorizedPage />,
+      },
+      {
+        path: '/',
+        element: isAuthenticated ? <DashboardLayout /> : <Navigate to="/login" replace />,
+        children: [
+          { index: true, element: <DashboardPage /> },
+          { path: 'approvals', element: <ApprovalsPage /> },
+          { path: 'doctors', element: <DoctorsPage /> },
+          { path: 'doctors/:id', element: <DoctorDetailsPage /> },
+          { path: 'nurses', element: <NursesPage /> },
+          { path: 'nurses/:id', element: <NurseDetailsPage /> },
+          { path: 'hospitals', element: <HospitalsPage /> },
+          { path: 'hospitals/:id', element: <HospitalDetailsPage /> },
+          { path: 'users', element: <UsersPage /> },
+          { path: 'users/:id', element: <UserDetailsPage /> },
+          { path: 'specializations', element: <SpecializationsPage /> },
+          { path: 'hospital-services', element: <HospitalServicesPage /> },
+          { path: 'entity-ratings', element: <EntityRatingsPage /> },
+          { path: 'provinces', element: <ProvincesPage /> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
+      },
+    ];
+
+    if (!isAuthenticated) {
+      baseRoutes.push({
+        path: '*',
+        element: <Navigate to="/login" replace />,
+      });
+    }
+
+    return createHashRouter(baseRoutes, {
+      future: {
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      },
+    });
+  }, [isAuthenticated]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen bg-slate-900 text-white">
@@ -45,32 +96,7 @@ const AppRoutes: React.FC = () => {
     );
   }
 
-  return (
-    <HashRouter>
-      <Routes>
-        <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" />} />
-        <Route path="/unauthorized" element={<UnauthorizedPage />} />
-        <Route
-          path="/"
-          element={isAuthenticated ? <DashboardLayout /> : <Navigate to="/login" replace />}
-        >
-          <Route index element={<DashboardPage />} />
-          <Route path="approvals" element={<ApprovalsPage />} />
-          <Route path="doctors" element={<DoctorsPage />} />
-          <Route path="doctors/:id" element={<DoctorDetailsPage />} />
-          <Route path="nurses" element={<NursesPage />} />
-          <Route path="nurses/:id" element={<NurseDetailsPage />} />
-          <Route path="hospitals" element={<HospitalsPage />} />
-          <Route path="hospitals/:id" element={<HospitalDetailsPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="specializations" element={<SpecializationsPage />} />
-          <Route path="hospital-services" element={<HospitalServicesPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-        {!isAuthenticated && <Route path="*" element={<Navigate to="/login" replace />} />}
-      </Routes>
-    </HashRouter>
-  );
+  return <RouterProvider router={router} />;
 };
 
 export default App;

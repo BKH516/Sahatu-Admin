@@ -6,6 +6,7 @@ import api from '../services/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
+import Modal from '../components/ui/Modal';
 import { runWithConcurrency, throwIfAborted } from '../utils/async';
 
 const LIST_PAGE_SIZE = 100;
@@ -125,6 +126,7 @@ const nurseMatchesQuery = (nurse: Nurse, query: string) => {
 const NursesPage: React.FC = () => {
     const navigate = useNavigate();
 
+    const [selectedNurse, setSelectedNurse] = useState<Nurse | null>(null);
     const [listPage, setListPage] = useState(1);
     const [listState, setListState] = useState<ListState>({
         data: [],
@@ -458,13 +460,14 @@ const NursesPage: React.FC = () => {
                                 <th scope="col" className="px-6 py-3">البريد الإلكتروني</th>
                                 <th scope="col" className="px-6 py-3">رقم الهاتف</th>
                                 <th scope="col" className="px-6 py-3">المؤهل</th>
+                                <th scope="col" className="px-6 py-3">التقييم</th>
                                 <th scope="col" className="px-6 py-3">الحالة</th>
                                 <th scope="col" className="px-6 py-3">الإجراءات</th>
                             </tr>
                         </thead>
                         <tbody>
                             {tableLoading ? (
-                                <tr><td colSpan={6} className="text-center p-8">جاري التحميل...</td></tr>
+                                <tr><td colSpan={7} className="text-center p-8">جاري التحميل...</td></tr>
                             ) : tableData.length > 0 ? (
                                 tableData.map((nurse) => (
                                     <tr key={nurse.id} className="border-b border-slate-700 hover:bg-slate-800">
@@ -473,22 +476,45 @@ const NursesPage: React.FC = () => {
                                         <td className="px-6 py-4">{nurse.account?.phone_number || '-'}</td>
                                         <td className="px-6 py-4">{nurse.graduation_type || '-'}</td>
                                         <td className="px-6 py-4">
+                                            {nurse.avg_rating !== undefined && nurse.avg_rating !== null ? (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-yellow-400 font-semibold">
+                                                        {nurse.avg_rating.toFixed(1)}
+                                                    </span>
+                                                    <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                                    </svg>
+                                                    {nurse.ratings_count !== undefined && nurse.ratings_count !== null && (
+                                                        <span className="text-slate-400 text-xs">
+                                                            ({nurse.ratings_count})
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-500 text-sm">-</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4">
                                             <span className={`px-2 py-1 text-xs rounded-full ${nurse.is_active ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
                                                 {nurse.is_active ? 'نشط' : 'غير نشط'}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             <button
-                                                onClick={() => navigate(`/nurses/${nurse.id}`)}
-                                                className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                                                onClick={() => setSelectedNurse(nurse)}
+                                                className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded-md transition-colors flex items-center gap-1"
                                             >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
                                                 عرض التفاصيل
                                             </button>
                                         </td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr><td colSpan={6} className="text-center p-8">
+                                <tr><td colSpan={7} className="text-center p-8">
                                     {tableEmptyMessage}
                                 </td></tr>
                             )}
@@ -580,8 +606,141 @@ const NursesPage: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Nurse Details Modal */}
+            <Modal
+                isOpen={!!selectedNurse}
+                onClose={() => setSelectedNurse(null)}
+                title="تفاصيل الممرض/ة"
+                size="lg"
+            >
+                {selectedNurse && (
+                    <div className="space-y-6">
+                        {/* Profile Header */}
+                        <div className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 rounded-xl p-4 sm:p-6 border border-emerald-500/30">
+                            <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+                                <div className="flex-shrink-0">
+                                    <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center border-4 border-emerald-400 shadow-lg shadow-emerald-500/50">
+                                        <svg className="w-12 h-12 sm:w-16 sm:h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                <div className="flex-1 text-center sm:text-right space-y-2">
+                                    <h2 className="text-2xl sm:text-3xl font-bold text-white">
+                                        {selectedNurse.full_name}
+                                    </h2>
+                                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                                        <Badge variant="success" size="lg">
+                                            <span className="flex items-center gap-2">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                </svg>
+                                                {selectedNurse.graduation_type}
+                                            </span>
+                                        </Badge>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Personal Information */}
+                        <div className="bg-slate-800/50 rounded-xl p-4 sm:p-6 border border-slate-700/50">
+                            <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                المعلومات الشخصية
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <DetailItem label="الاسم الكامل" value={selectedNurse.full_name} />
+                                <DetailItem label="البريد الإلكتروني" value={selectedNurse.account?.email || 'غير متوفر'} />
+                                <DetailItem label="رقم الهاتف" value={selectedNurse.account?.phone_number || 'غير متوفر'} />
+                                <DetailItem label="العنوان" value={selectedNurse.address || 'غير متوفر'} />
+                                {selectedNurse.age && (
+                                    <DetailItem label="العمر" value={`${selectedNurse.age} سنة`} />
+                                )}
+                                <DetailItem 
+                                    label="الجنس" 
+                                    value={selectedNurse.gender === 'male' ? 'ذكر' : 'أنثى'} 
+                                />
+                            </div>
+                        </div>
+
+                        {/* Professional Information */}
+                        <div className="bg-slate-800/50 rounded-xl p-4 sm:p-6 border border-slate-700/50">
+                            <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                المعلومات المهنية
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <DetailItem 
+                                    label="نوع التخرج" 
+                                    value={
+                                        <Badge variant="success" size="md">
+                                            {selectedNurse.graduation_type}
+                                        </Badge>
+                                    } 
+                                />
+                                <DetailItem 
+                                    label="الحالة" 
+                                    value={
+                                        <Badge variant={selectedNurse.is_active ? 'success' : 'danger'} size="md">
+                                            {selectedNurse.is_active ? 'نشط' : 'غير نشط'}
+                                        </Badge>
+                                    } 
+                                />
+                                {selectedNurse.avg_rating !== undefined && selectedNurse.avg_rating !== null && (
+                                    <DetailItem 
+                                        label="التقييم" 
+                                        value={
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-yellow-400 font-semibold">
+                                                    {selectedNurse.avg_rating.toFixed(1)}
+                                                </span>
+                                                <svg className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                                </svg>
+                                                {selectedNurse.ratings_count && (
+                                                    <span className="text-slate-400 text-sm">
+                                                        ({selectedNurse.ratings_count} تقييم)
+                                                    </span>
+                                                )}
+                                            </div>
+                                        } 
+                                    />
+                                )}
+                            </div>
+                            {selectedNurse.profile_description && (
+                                <div className="mt-4">
+                                    <DetailItem 
+                                        label="الوصف الشخصي" 
+                                        value={selectedNurse.profile_description} 
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
+
+interface DetailItemProps {
+    label: string;
+    value: React.ReactNode;
+}
+
+const DetailItem: React.FC<DetailItemProps> = ({ label, value }) => (
+    <div className="space-y-1">
+        <p className="text-xs sm:text-sm text-slate-400 font-medium">{label}</p>
+        <p className="text-sm sm:text-base text-white font-semibold">
+            {value || <span className="text-slate-500">غير متوفر</span>}
+        </p>
+    </div>
+);
 
 export default NursesPage;

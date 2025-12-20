@@ -17,7 +17,7 @@ const ApprovalsPage: React.FC = () => {
     const [specializations, setSpecializations] = useState<Specialization[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedAccount, setSelectedAccount] = useState<PendingAccount | null>(null);
-    const { toasts, showToast, removeToast } = useToast();
+    const { toasts, removeToast, success, error, warning } = useToast();
 
     const fetchAccounts = useCallback(async () => {
         setLoading(true);
@@ -40,13 +40,13 @@ const ApprovalsPage: React.FC = () => {
             }
             
             setAccounts(accountsData);
-        } catch (error) {
-            showToast.error('فشل تحميل طلبات الموافقة');
+        } catch (err) {
+            error('فشل تحميل طلبات الموافقة');
             setAccounts([]);
         } finally {
             setLoading(false);
         }
-    }, [activeTab]);
+    }, [activeTab, error]);
 
     useEffect(() => {
         fetchAccounts();
@@ -55,15 +55,8 @@ const ApprovalsPage: React.FC = () => {
     useEffect(() => {
         const fetchSpecializations = async () => {
             try {
-                // Try /admin/specializations first
-                let response;
+                const response = await api.get('/admin/specializations');
                 let specs: Specialization[] = [];
-                
-                try {
-                    response = await api.get('/admin/specializations');
-                } catch (err) {
-                    response = await api.get('/specializations');
-                }
                 
                 // Handle different response structures
                 // Sometimes the response itself is the array
@@ -78,11 +71,16 @@ const ApprovalsPage: React.FC = () => {
                 }
                 
                 setSpecializations(specs);
-            } catch (error) {
+            } catch (err: any) {
+                // Only show error if it's not a rate limit error (429)
+                // Rate limit errors are handled by the server and user should wait
+                if (err?.status !== 429) {
+                    error('فشل تحميل التخصصات');
+                }
             }
         };
         fetchSpecializations();
-    }, []);
+    }, [error]);
 
     const getSpecializationName = (specializationId?: number): string => {
         if (!specializationId) return 'غير محدد';
@@ -95,9 +93,9 @@ const ApprovalsPage: React.FC = () => {
         try {
             await api.get(`/admin/approveAccount/${id}`);
             setAccounts(prev => prev.filter(acc => acc.id !== id));
-            showToast.success('تمت الموافقة على الحساب بنجاح');
-        } catch (error: any) {
-            showToast.error(`فشلت الموافقة: ${error.message}`);
+            success('تمت الموافقة على الحساب بنجاح');
+        } catch (err: any) {
+            error(`فشلت الموافقة: ${err?.message || 'حدث خطأ غير متوقع'}`);
         }
     };
     
@@ -119,9 +117,9 @@ const ApprovalsPage: React.FC = () => {
         try {
             await rejectAccount();
             setAccounts(prev => prev.filter(acc => acc.id !== id));
-            showToast.warning('تم رفض الحساب');
-        } catch (error: any) {
-            showToast.error(`فشل رفض الحساب: ${error?.message || 'حدث خطأ غير متوقع'}`);
+            warning('تم رفض الحساب');
+        } catch (err: any) {
+            error(`فشل رفض الحساب: ${err?.message || 'حدث خطأ غير متوقع'}`);
         }
     };
 

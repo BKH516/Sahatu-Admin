@@ -108,6 +108,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           
           <NavItem to="/specializations" label="التخصصات" icon={<IconSpecialization />} onClick={onClose} />
           <NavItem to="/hospital-services" label="خدمات المشافي" icon={<IconService />} onClick={onClose} />
+          <NavItem to="/provinces" label="المحافظات" icon={<IconProvince />} onClick={onClose} />
+
+          <div className="px-4 mt-6 mb-2 flex items-center gap-2">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent"></div>
+            <p className="text-xs uppercase text-slate-500 font-semibold">التقارير</p>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent"></div>
+          </div>
+
+          <NavItem to="/entity-ratings" label="تقييمات الكيانات" icon={<IconRatings />} onClick={onClose} />
       </nav>
 
         <div className="p-4 border-t border-slate-700/50">
@@ -154,6 +163,16 @@ const IconSpecialization = () => (
 );
 const IconService = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+);
+const IconRatings = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.966a1 1 0 00.95.69h4.178c.969 0 1.371 1.24.588 1.81l-3.382 2.46a1 1 0 00-.364 1.118l1.287 3.966c.3.922-.755 1.688-1.54 1.118l-3.382-2.46a1 1 0 00-1.176 0l-3.382 2.46c-.784.57-1.838-.196-1.539-1.118l1.287-3.966a1 1 0 00-.364-1.118L2.997 9.393c-.783-.57-.38-1.81.588-1.81h4.178a1 1 0 00.95-.69l1.286-3.966z" />
+  </svg>
+);
+const IconProvince = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
 );
 
 export default Sidebar;

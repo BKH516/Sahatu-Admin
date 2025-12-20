@@ -63,6 +63,7 @@ export interface HospitalService {
     service_name: string;
     created_at: string;
     updated_at: string;
+    deleted_at?: string | null;
 }
 
 export interface DoctorService {
@@ -127,6 +128,8 @@ export interface Doctor {
   age: number;
   gender: 'male' | 'female';
   profile_description: string;
+  avg_rating?: number;
+  ratings_count?: number;
   account: {
     id?: number;
     email: string;
@@ -151,10 +154,55 @@ export interface Nurse {
   profile_description: string;
   graduation_type: string;
   is_active: 0 | 1;
+  avg_rating?: number;
+  ratings_count?: number;
   account: {
     email: string;
     phone_number: string;
   };
+}
+
+export interface NurseService {
+  id: number;
+  nurse_id: number;
+  name: string;
+  price: string;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NurseReservation {
+  id: number;
+  user_id: number;
+  nurse_id: number;
+  nurse_service_id: number;
+  reservation_type: 'manual' | 'direct';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
+  note: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  deleted_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  location?: {
+    lat?: number;
+    lng?: number;
+    srid?: number;
+  } | null;
+  user?: {
+    id?: number;
+    account_id?: number;
+    full_name?: string;
+    age?: number;
+    gender?: 'male' | 'female';
+    account?: {
+      email?: string;
+      phone_number?: string;
+    };
+  };
+  nurse_service?: NurseService;
+  subservice_reservations?: any[];
 }
 
 export interface User {
@@ -226,6 +274,8 @@ export interface Hospital {
   id: number;
   full_name?: string | null;
   address?: string | null;
+  avg_rating?: number;
+  ratings_count?: number;
   account?: {
     id?: number;
     email?: string | null;
@@ -246,4 +296,52 @@ export interface Notification {
   read: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface EntityRating {
+  id: number;
+  rateable_type: string;
+  rateable_id: number;
+  user_id: number;
+  rating: number;
+  review: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  user?: {
+    id?: number;
+    full_name?: string;
+  };
+}
+
+export interface EntityRatingsSummary {
+  entity_id: number;
+  avg_rating: number;
+  ratings_count: number;
+  ratings: {
+    current_page?: number;
+    data?: EntityRating[];
+    total?: number;
+    first_page_url?: string;
+    last_page?: number;
+    last_page_url?: string;
+    links?: Array<{
+      url: string | null;
+      label: string;
+      active: boolean;
+    }>;
+    next_page_url?: string | null;
+    path?: string;
+    per_page?: number;
+    prev_page_url?: string | null;
+    to?: number;
+  } | EntityRating[];
+}
+
+export interface Province {
+  id: number;
+  name_ar: string;
+  name_en: string;
+  created_at?: string;
+  updated_at?: string;
 }

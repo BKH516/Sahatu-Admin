@@ -12,6 +12,10 @@ const HospitalServicesPage: React.FC = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
     const { toasts, removeToast, success, error, warning } = useToast();
+    const [showTrashModal, setShowTrashModal] = useState(false);
+    const [trashedServices, setTrashedServices] = useState<HospitalService[]>([]);
+    const [trashedLoading, setTrashedLoading] = useState(false);
+    const [trashError, setTrashError] = useState('');
 
     const fetchServices = async () => {
         setLoading(true);
@@ -144,11 +148,59 @@ const HospitalServicesPage: React.FC = () => {
         return date.toLocaleDateString('ar-EG');
     };
 
+    const fetchTrashedServices = async () => {
+        setTrashedLoading(true);
+        setTrashError('');
+        try {
+            const response = await api.get('/admin/service/trashed');
+            const data = Array.isArray(response)
+                ? response
+                : Array.isArray(response?.data)
+                ? response.data
+                : [];
+            setTrashedServices(data);
+        } catch (err: any) {
+            setTrashError(err?.message || 'فشل تحميل العناصر المحذوفة');
+            setTrashedServices([]);
+        } finally {
+            setTrashedLoading(false);
+        }
+    };
+
+    const handleRestore = async (serviceId: number) => {
+        try {
+            await api.patch(`/admin/service/${serviceId}`);
+            success('تمت استعادة الخدمة بنجاح');
+            await fetchServices();
+            await fetchTrashedServices();
+        } catch (err: any) {
+            error(err?.message || 'فشل استعادة الخدمة');
+        }
+    };
+
+    const openTrashModal = async () => {
+        setShowTrashModal(true);
+        await fetchTrashedServices();
+    };
+
     return (
         <div>
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
                 <h1 className="text-3xl font-bold text-slate-100">إدارة خدمات المشافي</h1>
-                <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-md text-white font-semibold transition-colors">إضافة خدمة</button>
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={openTrashModal}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md text-white font-semibold transition-colors"
+                    >
+                        العناصر المحذوفة
+                    </button>
+                    <button
+                        onClick={() => handleOpenModal()}
+                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-md text-white font-semibold transition-colors"
+                    >
+                        إضافة خدمة
+                    </button>
+                </div>
             </div>
             
              <div className="bg-slate-800/50 border border-slate-700 rounded-xl shadow-lg overflow-hidden">
@@ -256,6 +308,17 @@ const HospitalServicesPage: React.FC = () => {
             )}
 
             {isModalOpen && <ServiceModal service={currentService} onClose={handleCloseModal} onSave={handleSave} />}
+            {showTrashModal && (
+                <TrashModal
+                    services={trashedServices}
+                    loading={trashedLoading}
+                    error={trashError}
+                    onClose={() => setShowTrashModal(false)}
+                    onRefresh={fetchTrashedServices}
+                    onRestore={handleRestore}
+                    formatDate={formatDate}
+                />
+            )}
             
             {/* Toast Notifications */}
             {toasts.map((toast, index) => (
@@ -303,6 +366,95 @@ const ServiceModal: React.FC<ModalProps> = ({ service, onClose, onSave }) => {
         </div>
     );
 }
+
+interface TrashModalProps {
+    services: HospitalService[];
+    loading: boolean;
+    error: string;
+    onClose: () => void;
+    onRefresh: () => void;
+    onRestore: (id: number) => void;
+    formatDate: (value?: string | null) => string;
+}
+
+const TrashModal: React.FC<TrashModalProps> = ({ services, loading, error, onClose, onRefresh, onRestore, formatDate }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center px-4" onClick={onClose}>
+            <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-3xl max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white">العناصر المحذوفة</h2>
+                        <p className="text-slate-400 text-sm mt-1">
+                            يمكنك استعادة الخدمات المحذوفة خلال فترة السماح.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={onRefresh}
+                            className="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 transition-colors"
+                        >
+                            تحديث
+                        </button>
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                            aria-label="إغلاق"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div className="p-6 overflow-y-auto max-h-[70vh] space-y-4">
+                    {error && (
+                        <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-4 py-2">
+                            {error}
+                        </div>
+                    )}
+
+                    {loading ? (
+                        <div className="flex justify-center py-10">
+                            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-cyan-400"></div>
+                        </div>
+                    ) : services.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400">
+                            لا توجد عناصر محذوفة حالياً.
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {services.map((service) => (
+                                <div
+                                    key={service.id}
+                                    className="border border-slate-700 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-slate-900/60"
+                                >
+                                    <div>
+                                        <p className="text-white font-semibold">{service.service_name}</p>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            معرف الخدمة #{service.id}
+                                        </p>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            حذف في: {formatDate(service.deleted_at)}
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2 flex-wrap">
+                                        <button
+                                            onClick={() => onRestore(service.id)}
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-sm font-semibold transition-colors"
+                                        >
+                                            استعادة
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 
 export default HospitalServicesPage;

@@ -26,6 +26,7 @@ interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
   skipRateLimit?: boolean;
   retryCount?: number;
+  provinceId?: number; // للفلترة حسب المحافظة
 }
 
 const api = {
@@ -143,6 +144,11 @@ const api = {
       headers.set('X-CSRF-Token', csrfToken);
     }
 
+    // إضافة Province-ID header للفلترة حسب المحافظة
+    if (options.provinceId) {
+      headers.set('Province-ID', String(options.provinceId));
+    }
+
     // Timeout للطلب
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -197,7 +203,10 @@ const api = {
           logSecurityEvent('SERVER_ERROR', { endpoint, status: response.status });
         }
         
-        throw new Error(errorMsg);
+        // إضافة status code للرسالة لتسهيل التعامل مع 404
+        const error = new Error(errorMsg);
+        (error as any).status = response.status;
+        throw error;
       }
       
       return data;
@@ -264,6 +273,15 @@ const api = {
     return this.request(endpoint, {
       ...options,
       method: 'PUT',
+      body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
+    });
+  },
+
+  patch(endpoint: string, body?: any, options?: RequestOptions) {
+    const sanitizedBody = body ? sanitizePayload(body) : body;
+    return this.request(endpoint, {
+      ...options,
+      method: 'PATCH',
       body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
     });
   },

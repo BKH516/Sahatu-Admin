@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { User } from '../types';
 import api from '../services/api';
 import Table, { Column } from '../components/ui/Table';
@@ -124,6 +125,7 @@ const userMatchesQuery = (user: User, query: string) => {
 
 const UsersPage: React.FC = () => {
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const navigate = useNavigate();
 
     const [listPage, setListPage] = useState(1);
     const [listState, setListState] = useState<ListState>({
@@ -415,16 +417,28 @@ const UsersPage: React.FC = () => {
         {
             header: 'الإجراءات',
             accessor: (row) => (
-                <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedUser(row);
-                    }}
-                >
-                    عرض التفاصيل
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedUser(row);
+                        }}
+                    >
+                        عرض الملخص
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/users/${row.id}`, { state: { user: row } });
+                        }}
+                    >
+                        الحجوزات
+                    </Button>
+                </div>
             ),
         },
     ];
@@ -596,9 +610,21 @@ const UsersPage: React.FC = () => {
                 onClose={() => setSelectedUser(null)}
                 title="تفاصيل المستخدم"
                 footer={
-                    <Button variant="secondary" onClick={() => setSelectedUser(null)}>
-                        إغلاق
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Button
+                            variant="primary"
+                            onClick={() => {
+                                if (selectedUser) {
+                                    navigate(`/users/${selectedUser.id}`, { state: { user: selectedUser } });
+                                }
+                            }}
+                        >
+                            فتح صفحة الحجوزات
+                        </Button>
+                        <Button variant="secondary" onClick={() => setSelectedUser(null)}>
+                            إغلاق
+                        </Button>
+                    </div>
                 }
             >
                 {selectedUser && (
