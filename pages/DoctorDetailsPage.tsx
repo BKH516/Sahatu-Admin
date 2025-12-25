@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Doctor, DoctorReservation } from '../types';
 import api from '../services/api';
+import { getProfileImageUrl } from '../utils/imageUtils';
 
 const DoctorDetailsPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -10,6 +11,11 @@ const DoctorDetailsPage: React.FC = () => {
     const [reservations, setReservations] = useState<DoctorReservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [reservationsLoading, setReservationsLoading] = useState(true);
+
+    // License image state
+    const [licenseImageUrl, setLicenseImageUrl] = useState<string | null>(null);
+    const [licenseImageLoading, setLicenseImageLoading] = useState(false);
+    const [licenseImageError, setLicenseImageError] = useState<string | null>(null);
     
     // Filters
     const [statusFilter, setStatusFilter] = useState<string>('');
@@ -20,7 +26,6 @@ const DoctorDetailsPage: React.FC = () => {
     const [stats, setStats] = useState({
         pending: 0,
         approved: 0,
-        rejected: 0,
         cancelled: 0,
         completed: 0,
         total: 0
@@ -36,12 +41,69 @@ const DoctorDetailsPage: React.FC = () => {
         }
     }, [id, statusFilter, fromDate, toDate]);
 
+    // Load license image when doctor data is available
+    useEffect(() => {
+        let currentLicenseUrl: string | null = null;
+        let isMounted = true;
+
+        if (doctor && id) {
+            // Always try to load license image from API (even if license_image_path is not in data)
+            // The image is protected and may exist on server
+            setLicenseImageLoading(true);
+            setLicenseImageError(null);
+            
+            // Fetch license image from API (protected endpoint)
+            api.getDoctorLicense(id)
+                .then((blob: Blob) => {
+                    if (!isMounted) {
+                        URL.revokeObjectURL(URL.createObjectURL(blob));
+                        return;
+                    }
+                    // Create object URL from blob
+                    const url = URL.createObjectURL(blob);
+                    currentLicenseUrl = url;
+                    setLicenseImageUrl(url);
+                    setLicenseImageLoading(false);
+                })
+                .catch((error: any) => {
+                    if (!isMounted) return;
+                    console.error('Error loading doctor license:', error);
+                    // Only show error if it's not a 404 (image might not exist)
+                    if (error.status === 404) {
+                        setLicenseImageError(null);
+                        setLicenseImageUrl(null);
+                    } else {
+                        setLicenseImageError(error.message || 'فشل تحميل صورة الرخصة');
+                    }
+                    setLicenseImageLoading(false);
+                });
+        }
+
+        // Cleanup: revoke object URL when component unmounts or doctor changes
+        return () => {
+            isMounted = false;
+            if (currentLicenseUrl) {
+                URL.revokeObjectURL(currentLicenseUrl);
+            }
+            // Also revoke the current state URL if it exists
+            setLicenseImageUrl(prevUrl => {
+                if (prevUrl && prevUrl !== currentLicenseUrl) {
+                    URL.revokeObjectURL(prevUrl);
+                }
+                return null;
+            });
+        };
+    }, [doctor, id]);
+
     const fetchDoctorDetails = async () => {
         setLoading(true);
         try {
             const response = await api.get(`/admin/doctor/${id}`);
-            setDoctor(response.doctor || response);
+            const doctorData = response.doctor || response;
+            
+            setDoctor(doctorData);
         } catch (error) {
+            console.error('Error fetching doctor details:', error);
         } finally {
             setLoading(false);
         }
@@ -74,7 +136,6 @@ const DoctorDetailsPage: React.FC = () => {
         const newStats = {
             pending: 0,
             approved: 0,
-            rejected: 0,
             cancelled: 0,
             completed: 0,
             total: data.length
@@ -170,24 +231,173 @@ const DoctorDetailsPage: React.FC = () => {
             {/* Doctor Info Card */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+                    {/* Profile Image */}
+                    {doctor.profile_image && getProfileImageUrl(doctor.profile_image) && (
+                        <div className="mb-6 flex justify-center">
+                            <img 
+                                src={getProfileImageUrl(doctor.profile_image)!} 
+                                alt={doctor.full_name}
+                                className="w-32 h-32 rounded-full object-cover border-4 border-cyan-400 shadow-lg shadow-cyan-500/50 cursor-pointer hover:border-cyan-300 transition-all"
+                                onClick={() => window.open(getProfileImageUrl(doctor.profile_image)!, '_blank')}
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                }}
+                            />
+                        </div>
+                    )}
                     <h2 className="text-xl font-bold text-cyan-400 mb-4">المعلومات الأساسية</h2>
                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-slate-400 text-sm">رقم المعرف</p>
+                            <p className="text-white font-medium">#{doctor.id}</p>
+                        </div>
+                        {doctor.account_id && (
+                            <div>
+                                <p className="text-slate-400 text-sm">رقم حساب المستخدم</p>
+                                <p className="text-white font-medium">#{doctor.account_id}</p>
+                            </div>
+                        )}
                         <div>
                             <p className="text-slate-400 text-sm">الاسم الكامل</p>
                             <p className="text-white font-medium">{doctor.full_name}</p>
                         </div>
                         <div>
                             <p className="text-slate-400 text-sm">التخصص</p>
-                            <p className="text-white font-medium">{doctor.specialization?.name_ar}</p>
+                            <p className="text-white font-medium">
+                                {doctor.specialization?.name_ar || (doctor.specialization_id ? `#${doctor.specialization_id}` : '-')}
+                            </p>
                         </div>
+                        {doctor.specialization_id && (
+                            <div>
+                                <p className="text-slate-400 text-sm">رقم التخصص</p>
+                                <p className="text-white font-medium">#{doctor.specialization_id}</p>
+                            </div>
+                        )}
+                        {/* License Image - Always show section if doctor exists */}
+                        {doctor && (
+                            <div className="col-span-2">
+                                <p className="text-slate-400 text-sm mb-2">رخصة الطبيب</p>
+                                {licenseImageLoading ? (
+                                    <div className="flex justify-center items-center h-48 bg-slate-700/30 rounded-lg border border-slate-600">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400"></div>
+                                    </div>
+                                ) : licenseImageError ? (
+                                    <div className="text-center p-4 bg-slate-700/30 rounded-lg border border-red-500/50">
+                                        <p className="text-red-400 text-sm mb-2">⚠️ {licenseImageError}</p>
+                                        <button
+                                            onClick={() => {
+                                                if (id) {
+                                                    setLicenseImageError(null);
+                                                    setLicenseImageLoading(true);
+                                                    api.getDoctorLicense(id)
+                                                        .then((blob: Blob) => {
+                                                            const url = URL.createObjectURL(blob);
+                                                            setLicenseImageUrl(url);
+                                                            setLicenseImageLoading(false);
+                                                        })
+                                                        .catch((error: any) => {
+                                                            if (error.status === 404) {
+                                                                setLicenseImageError('صورة الرخصة غير متوفرة');
+                                                            } else {
+                                                                setLicenseImageError(error.message || 'فشل تحميل صورة الرخصة');
+                                                            }
+                                                            setLicenseImageLoading(false);
+                                                        });
+                                                }
+                                            }}
+                                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded text-xs"
+                                        >
+                                            إعادة المحاولة
+                                        </button>
+                                    </div>
+                                ) : licenseImageUrl ? (
+                                    <div className="relative group inline-block">
+                                        <img
+                                            src={licenseImageUrl}
+                                            alt="رخصة الطبيب"
+                                            className="w-48 h-48 rounded-lg object-cover border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer"
+                                            onClick={() => {
+                                                const newWindow = window.open();
+                                                if (newWindow) {
+                                                    newWindow.document.write(`
+                                                        <html>
+                                                            <head>
+                                                                <title>رخصة الطبيب - ${doctor?.full_name}</title>
+                                                                <style>
+                                                                    body {
+                                                                        margin: 0;
+                                                                        padding: 20px;
+                                                                        background: #1e293b;
+                                                                        display: flex;
+                                                                        justify-content: center;
+                                                                        align-items: center;
+                                                                        min-height: 100vh;
+                                                                    }
+                                                                    img {
+                                                                        max-width: 100%;
+                                                                        max-height: 100vh;
+                                                                        border-radius: 8px;
+                                                                        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                                                                    }
+                                                                </style>
+                                                            </head>
+                                                            <body>
+                                                                <img src="${licenseImageUrl}" alt="رخصة الطبيب" />
+                                                            </body>
+                                                        </html>
+                                                    `);
+                                                }
+                                            }}
+                                        />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center pointer-events-none">
+                                            <svg className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                            </svg>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-4 bg-slate-700/30 rounded-lg border border-slate-600">
+                                        <p className="text-slate-400 text-sm">لا توجد صورة رخصة متوفرة</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div>
                             <p className="text-slate-400 text-sm">البريد الإلكتروني</p>
-                            <p className="text-white font-medium">{doctor.account?.email}</p>
+                            <p className="text-white font-medium">{doctor.account?.email || '-'}</p>
                         </div>
                         <div>
                             <p className="text-slate-400 text-sm">رقم الهاتف</p>
-                            <p className="text-white font-medium">{doctor.account?.phone_number}</p>
+                            <p className="text-white font-medium">{doctor.account?.phone_number || '-'}</p>
                         </div>
+                        {doctor.account?.created_at && (
+                            <div>
+                                <p className="text-slate-400 text-sm">تاريخ إنشاء الحساب</p>
+                                <p className="text-white font-medium">
+                                    {new Date(doctor.account.created_at).toLocaleDateString('ar-EG', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                        )}
+                        {doctor.account?.updated_at && (
+                            <div>
+                                <p className="text-slate-400 text-sm">تاريخ آخر تحديث للحساب</p>
+                                <p className="text-white font-medium">
+                                    {new Date(doctor.account.updated_at).toLocaleDateString('ar-EG', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                        )}
                         <div>
                             <p className="text-slate-400 text-sm">العمر</p>
                             <p className="text-white font-medium">{doctor.age} سنة</p>
@@ -198,12 +408,54 @@ const DoctorDetailsPage: React.FC = () => {
                         </div>
                         <div className="col-span-2">
                             <p className="text-slate-400 text-sm">العنوان</p>
-                            <p className="text-white font-medium">{doctor.address}</p>
+                            <p className="text-white font-medium">{doctor.address || '-'}</p>
                         </div>
                         {doctor.profile_description && (
                             <div className="col-span-2">
-                                <p className="text-slate-400 text-sm">الوصف</p>
-                                <p className="text-white font-medium">{doctor.profile_description}</p>
+                                <p className="text-slate-400 text-sm">الوصف الشخصي</p>
+                                <p className="text-white font-medium whitespace-pre-wrap">{doctor.profile_description}</p>
+                            </div>
+                        )}
+                        {doctor.created_at && (
+                            <div>
+                                <p className="text-slate-400 text-sm">تاريخ الإنشاء</p>
+                                <p className="text-white font-medium">
+                                    {new Date(doctor.created_at).toLocaleDateString('ar-EG', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                        )}
+                        {doctor.updated_at && (
+                            <div>
+                                <p className="text-slate-400 text-sm">تاريخ آخر تحديث</p>
+                                <p className="text-white font-medium">
+                                    {new Date(doctor.updated_at).toLocaleDateString('ar-EG', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                        )}
+                        {doctor.deleted_at && (
+                            <div className="col-span-2">
+                                <p className="text-slate-400 text-sm">تاريخ الحذف</p>
+                                <p className="text-red-400 font-medium">
+                                    {new Date(doctor.deleted_at).toLocaleDateString('ar-EG', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </p>
                             </div>
                         )}
                     </div>
@@ -228,10 +480,6 @@ const DoctorDetailsPage: React.FC = () => {
                         <div className="flex justify-between items-center">
                             <span className="text-blue-400">مكتملة</span>
                             <span className="font-bold text-blue-400">{stats.completed}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-red-400">مرفوضة</span>
-                            <span className="font-bold text-red-400">{stats.rejected}</span>
                         </div>
                         <div className="flex justify-between items-center">
                             <span className="text-gray-400">ملغاة</span>

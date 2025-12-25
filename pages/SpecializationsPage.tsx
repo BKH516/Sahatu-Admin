@@ -11,27 +11,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import EmptyState from '../components/ui/EmptyState';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/ui/Toast';
-
-// Helper function to get the correct image URL
-const getSpecializationImageUrl = (imagePath: string | null | undefined): string | null => {
-    if (!imagePath) return null;
-    
-    // If it's already a full URL, return it
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-        return imagePath;
-    }
-    
-    // Remove leading slashes and 'storage/' prefix if they exist
-    let cleanPath = imagePath.replace(/^\/+/, '').replace(/^storage\//, '');
-    
-    // If the path doesn't include 'images/specializations', add it
-    if (!cleanPath.includes('images/specializations')) {
-        cleanPath = `images/specializations/${cleanPath}`;
-    }
-    
-    // Build the full URL
-    return `https://sahtee.evra-co.com/storage/${cleanPath}`;
-};
+import { getSpecializationImageUrl } from '../utils/imageUtils';
 
 const SpecializationsPage: React.FC = () => {
     const [specializations, setSpecializations] = useState<Specialization[]>([]);
@@ -138,24 +118,52 @@ const SpecializationsPage: React.FC = () => {
                                 {getSpecializationImageUrl(spec.image) ? (
                                     <img 
                                         src={getSpecializationImageUrl(spec.image)!} 
-                                        alt={spec.name_ar} 
+                                        alt={spec.name_ar}
                                         className="w-20 h-20 md:w-24 md:h-24 rounded-full mx-auto object-cover border-4 border-slate-700 group-hover:border-cyan-500 transition-all duration-300 group-hover:scale-110"
+                                        loading="lazy"
                                         onError={(e) => {
                                             const target = e.currentTarget;
                                             const currentSrc = target.src;
+                                            const originalPath = spec.image?.replace(/^\/+/, '') || '';
+                                            
+                                            if (!originalPath || currentSrc.includes('data:image')) {
+                                                target.onerror = null;
+                                                target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2306b6d4"%3E%3Cpath d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/%3E%3C/svg%3E';
+                                                return;
+                                            }
+                                            
+                                            // Prevent infinite loop - track attempts
+                                            const attemptCount = parseInt(target.dataset.attemptCount || '0');
+                                            if (attemptCount >= 3) {
+                                                target.onerror = null;
+                                                target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2306b6d4"%3E%3Cpath d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/%3E%3C/svg%3E';
+                                                return;
+                                            }
+                                            target.dataset.attemptCount = String(attemptCount + 1);
+                                            
+                                            // If original path already contains 'specializations/', use it directly (remove any duplicate prefixes)
+                                            if (originalPath.includes('specializations/')) {
+                                                // Clean the path - remove any duplicate prefixes
+                                                let cleanPath = originalPath.replace(/^(images\/)?specializations\//, '');
+                                                target.src = `https://sahtee.evra-co.com/storage/specializations/${cleanPath}`;
+                                                return;
+                                            }
                                             
                                             // Try alternative paths if the first one fails
-                                            if (spec.image && !currentSrc.includes('data:image')) {
-                                                // Try without 'images/specializations' prefix
-                                                if (currentSrc.includes('images/specializations')) {
-                                                    target.src = `https://sahtee.evra-co.com/storage/${spec.image.replace(/^\/+/, '')}`;
-                                                    return;
-                                                }
-                                                // Try with just 'specializations' prefix
-                                                if (!currentSrc.includes('specializations/')) {
-                                                    target.src = `https://sahtee.evra-co.com/storage/specializations/${spec.image.replace(/^\/+/, '')}`;
-                                                    return;
-                                                }
+                                            // Try 1: without 'images/' prefix (just specializations/)
+                                            if (currentSrc.includes('images/specializations')) {
+                                                target.src = `https://sahtee.evra-co.com/storage/specializations/${originalPath}`;
+                                                return;
+                                            }
+                                            // Try 2: direct path (if image path already has directory structure)
+                                            if (currentSrc.includes('specializations/') && !originalPath.includes('/')) {
+                                                target.src = `https://sahtee.evra-co.com/storage/${originalPath}`;
+                                                return;
+                                            }
+                                            // Try 3: with images/ prefix (without specializations)
+                                            if (currentSrc.includes('specializations/') && !currentSrc.includes('images/')) {
+                                                target.src = `https://sahtee.evra-co.com/storage/images/${originalPath}`;
+                                                return;
                                             }
                                             
                                             // If all attempts fail, show default icon

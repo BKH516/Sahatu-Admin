@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/ui/Toast';
+import { getLicenseImageUrl, getProfileImageUrl } from '../utils/imageUtils';
 
 type Role = 'doctor' | 'nurse';
 
@@ -19,34 +20,210 @@ const ApprovalsPage: React.FC = () => {
     const [selectedAccount, setSelectedAccount] = useState<PendingAccount | null>(null);
     const { toasts, removeToast, success, error, warning } = useToast();
 
+    const [licenseImageUrl, setLicenseImageUrl] = useState<string | null>(null);
+    const [licenseImageLoading, setLicenseImageLoading] = useState(false);
+    const [licenseImageError, setLicenseImageError] = useState<string | null>(null);
+
+    // عند فتح modal الحساب، نحمل صورة الرخصة للأطباء والممرضين
+    useEffect(() => {
+        if (selectedAccount) {
+            // للأطباء: نحمل صورة الرخصة من API
+            if (selectedAccount.doctor && !selectedAccount.nurse) {
+                const doctorId = selectedAccount.doctor.id;
+                if (doctorId) {
+                    setLicenseImageLoading(true);
+                    setLicenseImageError(null);
+                    
+                    // استخدام api.request مباشرة لضمان التعامل الصحيح مع ملفات الصور
+                    api.request(`/admin/doctor/${doctorId}/license`, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'image/jpeg,image/png,image/*',
+                        },
+                    })
+                        .then((blob: Blob | null) => {
+                            if (blob && blob instanceof Blob) {
+                                const url = URL.createObjectURL(blob);
+                                setLicenseImageUrl(url);
+                                setLicenseImageLoading(false);
+                                setLicenseImageError(null);
+                            } else {
+                                setLicenseImageUrl(null);
+                                setLicenseImageLoading(false);
+                                setLicenseImageError(null);
+                            }
+                        })
+                        .catch((error: any) => {
+                            console.error('Error loading doctor license:', error);
+                            if (error.status === 404) {
+                                setLicenseImageUrl(null);
+                                setLicenseImageError(null);
+                            } else {
+                                setLicenseImageError(error.message || 'فشل تحميل صورة الرخصة');
+                            }
+                            setLicenseImageLoading(false);
+                        });
+                } else {
+                    setLicenseImageUrl(null);
+                    setLicenseImageLoading(false);
+                    setLicenseImageError(null);
+                }
+            }
+            // للممرضين: نحمل صورة الرخصة من path
+            else if (selectedAccount.nurse && !selectedAccount.doctor) {
+                // Try multiple possible field names for nurse only
+                const nurseLicensePath = selectedAccount.nurse?.license_image_path || 
+                                        (selectedAccount.nurse as any)?.license_image || 
+                                        (selectedAccount.nurse as any)?.license || 
+                                        (selectedAccount.nurse as any)?.license_path;
+                
+                if (nurseLicensePath) {
+                    const url = getLicenseImageUrl(nurseLicensePath);
+                    setLicenseImageUrl(url);
+                    setLicenseImageError(null);
+                    if (url) {
+                        setLicenseImageLoading(true);
+                        
+                        // Set a longer timeout before showing error (30 seconds)
+                        const timeoutId = setTimeout(() => {
+                            console.warn('⏱️ License image taking longer than expected to load (Approvals)...');
+                        }, 30000); // 30 seconds
+                        
+                        // Preload image with longer timeout
+                        const img = new Image();
+                        let imageLoaded = false;
+                        
+                        img.onload = () => {
+                            if (!imageLoaded) {
+                                imageLoaded = true;
+                                clearTimeout(timeoutId);
+                                setLicenseImageLoading(false);
+                                setLicenseImageError(null);
+                            }
+                        };
+                        
+                        img.onerror = (error) => {
+                            console.warn('⚠️ License image preload failed, but will retry in UI (Approvals):', url);
+                            // Don't set error or stop loading - let the UI img tag handle it
+                        };
+                        
+                        // Start loading with a delay to allow network to stabilize
+                        setTimeout(() => {
+                            img.src = url;
+                        }, 100);
+                        
+                        // Cleanup timeout on unmount
+                        return () => {
+                            clearTimeout(timeoutId);
+                        };
+                    } else {
+                        setLicenseImageLoading(false);
+                    }
+                } else {
+                    setLicenseImageUrl(null);
+                    setLicenseImageLoading(false);
+                    setLicenseImageError(null);
+                }
+            } else {
+                setLicenseImageUrl(null);
+                setLicenseImageLoading(false);
+                setLicenseImageError(null);
+            }
+        } else {
+            setLicenseImageUrl(null);
+            setLicenseImageLoading(false);
+            setLicenseImageError(null);
+        }
+        
+        // Cleanup: revoke object URL when component unmounts or account changes
+        return () => {
+            if (licenseImageUrl && licenseImageUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(licenseImageUrl);
+            }
+        };
+    }, [selectedAccount]);
+
     const fetchAccounts = useCallback(async () => {
         setLoading(true);
         try {
             const response = await api.post('/admin/get-pending-accounts', { role: activeTab });
-            
-            // Ensure we get the correct data from the response
-            let accountsData = response.data || response || [];
-            
-            // Filter accounts based on the active tab to ensure we only show the correct role
-            if (Array.isArray(accountsData)) {
-                accountsData = accountsData.filter((account: PendingAccount) => {
-                    if (activeTab === 'doctor') {
-                        return account.doctor && !account.nurse;
-                    } else if (activeTab === 'nurse') {
-                        return account.nurse && !account.doctor;
-                    }
-                    return false;
-                });
+
+            // توحيد شكل الاستجابة من الـ API (تدعم كل الأشكال المحتملة: مباشرة، داخل data، أو داخل pagination)
+            let accountsData: PendingAccount[] = [];
+
+            if (Array.isArray(response)) {
+                // الحالة: الاستجابة نفسها مصفوفة
+                accountsData = response as PendingAccount[];
+            } else if (Array.isArray(response?.data)) {
+                // الحالة: { data: [...] }
+                accountsData = response.data as PendingAccount[];
+            } else if (Array.isArray(response?.data?.data)) {
+                // الحالة: { data: { data: [...] } }
+                accountsData = response.data.data as PendingAccount[];
+            } else if (Array.isArray(response?.accounts)) {
+                // الحالة: { accounts: [...] }
+                accountsData = response.accounts as PendingAccount[];
+            } else if (Array.isArray(response?.pending_accounts)) {
+                // الحالة: { pending_accounts: [...] }
+                accountsData = response.pending_accounts as PendingAccount[];
+            } else if (Array.isArray(response?.data?.accounts)) {
+                // الحالة: { data: { accounts: [...] } }
+                accountsData = response.data.accounts as PendingAccount[];
+            } else if (Array.isArray(response?.data?.pending_accounts)) {
+                // الحالة: { data: { pending_accounts: [...] } }
+                accountsData = response.data.pending_accounts as PendingAccount[];
+            } else if (Array.isArray(response?.data?.data?.data)) {
+                // دعم أي طبقة إضافية محتملة
+                accountsData = response.data.data.data as PendingAccount[];
+            } else if (Array.isArray(response?.data?.data?.accounts)) {
+                accountsData = response.data.data.accounts as PendingAccount[];
             }
-            
-            setAccounts(accountsData);
+
+            // دعم حالة الـ pagination مثل:
+            // { current_page, data: [...], total, ... }
+            if (!accountsData.length && Array.isArray(response?.data)) {
+                accountsData = response.data as PendingAccount[];
+            }
+            if (!accountsData.length && Array.isArray(response?.data?.data)) {
+                accountsData = response.data.data as PendingAccount[];
+            }
+            if (!accountsData.length && Array.isArray(response?.data)) {
+                accountsData = response.data as PendingAccount[];
+            }
+
+            // في حالة شكل الاستجابة من Postman:
+            // { current_page, data: [ ... ] }
+            if (!accountsData.length && Array.isArray(response?.data)) {
+                accountsData = response.data as PendingAccount[];
+            }
+            if (!accountsData.length && Array.isArray(response?.data)) {
+                accountsData = response.data as PendingAccount[];
+            }
+
+            // إذا لم نتمكن من استخراج المصفوفة لأي سبب، نضمن عدم كسر الجدول
+            if (!Array.isArray(accountsData)) {
+                accountsData = [];
+            }
+
+            // فلترة الحسابات حسب التبويب النشط (أطباء / ممرضين)
+            const filteredAccounts = accountsData.filter((account: PendingAccount) => {
+                if (activeTab === 'doctor') {
+                    return !!account.doctor && !account.nurse;
+                }
+                if (activeTab === 'nurse') {
+                    return !!account.nurse && !account.doctor;
+                }
+                return false;
+            });
+
+            setAccounts(filteredAccounts);
         } catch (err) {
             error('فشل تحميل طلبات الموافقة');
             setAccounts([]);
         } finally {
             setLoading(false);
         }
-    }, [activeTab, error]);
+    }, [activeTab]);
 
     useEffect(() => {
         fetchAccounts();
@@ -91,7 +268,17 @@ const ApprovalsPage: React.FC = () => {
 
     const handleApprove = async (id: number) => {
         try {
-            await api.get(`/admin/approveAccount/${id}`);
+            // استخدام approveDoctor للأطباء و approveAccount للباقي
+            if (activeTab === 'doctor') {
+                try {
+                    await api.get(`/admin/approveDoctor/${id}`);
+                } catch (err) {
+                    // في حالة الفشل، نستخدم approveAccount كبديل
+                    await api.get(`/admin/approveAccount/${id}`);
+                }
+            } else {
+                await api.get(`/admin/approveAccount/${id}`);
+            }
             setAccounts(prev => prev.filter(acc => acc.id !== id));
             success('تمت الموافقة على الحساب بنجاح');
         } catch (err: any) {
@@ -105,21 +292,106 @@ const ApprovalsPage: React.FC = () => {
             return;
         }
 
-        const rejectAccount = async () => {
-            try {
-                await api.post(`/admin/rejectAccount/${id}`);
-                return;
-            } catch (error) {
-                await api.post('/admin/rejectAccount', { id });
-            }
-        };
-
         try {
-            await rejectAccount();
-            setAccounts(prev => prev.filter(acc => acc.id !== id));
-            warning('تم رفض الحساب');
+            // محاولة عدة endpoints مختلفة مع fallback
+            let rejected = false;
+            let lastError: any = null;
+
+            if (activeTab === 'doctor') {
+                // للأطباء: محاولة rejectDoctor أولاً
+                try {
+                    await api.get(`/admin/rejectDoctor/${id}`);
+                    rejected = true;
+                } catch (err: any) {
+                    lastError = err;
+                    console.log('rejectDoctor failed, trying rejectAccount...', err);
+                    
+                    // محاولة rejectAccount مع GET
+                    try {
+                        await api.get(`/admin/rejectAccount/${id}`);
+                        rejected = true;
+                    } catch (err2: any) {
+                        lastError = err2;
+                        console.log('rejectAccount GET failed, trying POST...', err2);
+                        
+                        // محاولة POST مع id في body
+                        try {
+                            await api.post('/admin/rejectAccount', { id });
+                            rejected = true;
+                        } catch (err3: any) {
+                            lastError = err3;
+                            console.log('rejectAccount POST failed, trying DELETE...', err3);
+                            
+                            // محاولة DELETE method
+                            try {
+                                await api.delete(`/admin/rejectAccount/${id}`);
+                                rejected = true;
+                            } catch (err4: any) {
+                                lastError = err4;
+                                console.log('rejectAccount DELETE failed, trying rejectNurse...', err4);
+                                
+                                // محاولة rejectNurse كبديل أخير
+                                try {
+                                    await api.get(`/admin/rejectNurse/${id}`);
+                                    rejected = true;
+                                } catch (err5: any) {
+                                    lastError = err5;
+                                    throw err5;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // للممرضين: محاولة rejectNurse أولاً
+                try {
+                    await api.get(`/admin/rejectNurse/${id}`);
+                    rejected = true;
+                } catch (err: any) {
+                    lastError = err;
+                    console.log('rejectNurse failed, trying rejectAccount...', err);
+                    
+                    // محاولة rejectAccount مع GET
+                    try {
+                        await api.get(`/admin/rejectAccount/${id}`);
+                        rejected = true;
+                    } catch (err2: any) {
+                        lastError = err2;
+                        console.log('rejectAccount GET failed, trying POST...', err2);
+                        
+                        // محاولة POST مع id في body
+                        try {
+                            await api.post('/admin/rejectAccount', { id });
+                            rejected = true;
+                        } catch (err3: any) {
+                            lastError = err3;
+                            console.log('rejectAccount POST failed, trying DELETE...', err3);
+                            
+                            // محاولة DELETE method
+                            try {
+                                await api.delete(`/admin/rejectAccount/${id}`);
+                                rejected = true;
+                            } catch (err4: any) {
+                                lastError = err4;
+                                throw err4;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (rejected) {
+                // إزالة الحساب من القائمة بعد النجاح
+                setAccounts(prev => prev.filter(acc => acc.id !== id));
+                warning('تم رفض الحساب');
+            }
         } catch (err: any) {
-            error(`فشل رفض الحساب: ${err?.message || 'حدث خطأ غير متوقع'}`);
+            console.error('Error rejecting account:', err);
+            const errorMessage = err?.response?.data?.message || 
+                               err?.data?.message || 
+                               err?.message || 
+                               'حدث خطأ غير متوقع';
+            error(`فشل رفض الحساب: ${errorMessage}`);
         }
     };
 
@@ -315,17 +587,23 @@ const ApprovalsPage: React.FC = () => {
                             <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
                                 {/* Profile Image */}
                                 <div className="flex-shrink-0">
-                                    {(selectedAccount.doctor?.profile_image || selectedAccount.nurse?.profile_image) ? (
-                                        <img 
-                                            src={selectedAccount.doctor?.profile_image || selectedAccount.nurse?.profile_image} 
-                                            alt={selectedAccount.doctor?.full_name || selectedAccount.nurse?.full_name}
-                                            className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-cyan-400 shadow-lg shadow-cyan-500/50"
-                                            onError={(e) => {
-                                                e.currentTarget.style.display = 'none';
-                                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                            }}
-                                        />
-                                    ) : null}
+                                    {(() => {
+                                        const profileImagePath = selectedAccount.doctor?.profile_image || selectedAccount.nurse?.profile_image;
+                                        const profileImageUrl = profileImagePath ? getProfileImageUrl(profileImagePath) : null;
+                                        
+                                        return profileImageUrl ? (
+                                            <img 
+                                                src={profileImageUrl} 
+                                                alt={selectedAccount.doctor?.full_name || selectedAccount.nurse?.full_name}
+                                                className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-cyan-400 shadow-lg shadow-cyan-500/50 cursor-pointer hover:border-cyan-300 transition-all"
+                                                onClick={() => window.open(profileImageUrl, '_blank')}
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                                }}
+                                            />
+                                        ) : null;
+                                    })()}
                                     <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center border-4 border-cyan-400 shadow-lg shadow-cyan-500/50 ${(selectedAccount.doctor?.profile_image || selectedAccount.nurse?.profile_image) ? 'hidden' : ''}`}>
                                         <svg className="w-12 h-12 sm:w-16 sm:h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -426,24 +704,139 @@ const ApprovalsPage: React.FC = () => {
                                             />
                                         </div>
                                     )}
-                                    {selectedAccount.doctor.license_image_path && (
+                                    {selectedAccount.doctor.instructions_before_booking && (
                                         <div className="sm:col-span-2">
-                                            <p className="text-xs sm:text-sm text-slate-400 font-medium mb-2">صورة الرخصة الطبية</p>
+                                            <DetailItem 
+                                                label="تعليمات قبل الحجز" 
+                                                value={selectedAccount.doctor.instructions_before_booking} 
+                                            />
+                                        </div>
+                                    )}
+                                    {/* License Image - For Doctors */}
+                                    <div className="sm:col-span-2">
+                                        <p className="text-xs sm:text-sm text-slate-400 font-medium mb-2">
+                                            صورة رخصة الطبيب
+                                        </p>
+                                        {licenseImageLoading && !licenseImageUrl ? (
+                                            <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                                <div className="text-center">
+                                                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400 mx-auto mb-2"></div>
+                                                    <p className="text-slate-400 text-sm">جاري التحميل...</p>
+                                                    <p className="text-slate-500 text-xs mt-1">يرجى الانتظار، قد يستغرق الأمر بضع لحظات</p>
+                                                </div>
+                                            </div>
+                                        ) : licenseImageError && !licenseImageUrl ? (
+                                            <div className="flex items-center justify-center p-6 bg-red-900/20 rounded-lg border border-red-600">
+                                                <div className="text-center">
+                                                    <svg className="w-10 h-10 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className="text-red-400 text-sm font-medium">{licenseImageError}</p>
+                                                    {licenseImageUrl && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                                            }}
+                                                            className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-xs font-medium transition-colors"
+                                                        >
+                                                            محاولة فتح الرابط
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : licenseImageUrl ? (
                                             <div className="relative group">
                                                 <img 
-                                                    src={`https://sahtee.evra-co.com/storage/${selectedAccount.doctor.license_image_path}`}
-                                                    alt="رخصة طبية"
-                                                    className="w-full max-w-md rounded-lg border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer"
-                                                    onClick={() => window.open(`https://sahtee.evra-co.com/storage/${selectedAccount.doctor.license_image_path}`, '_blank')}
+                                                    src={licenseImageUrl}
+                                                    alt={activeTab === 'doctor' ? 'رخصة طبية' : 'رخصة ممرضة'}
+                                                    className="w-full max-w-md rounded-lg border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer shadow-lg"
+                                                    onClick={() => {
+                                                        if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                                    }}
+                                                    onLoad={() => {
+                                                        console.log('✅ License image rendered successfully in Approvals UI');
+                                                        setLicenseImageLoading(false);
+                                                        setLicenseImageError(null);
+                                                    }}
+                                                    onError={(e) => {
+                                                        const target = e.currentTarget;
+                                                        const retryCount = parseInt(target.dataset.retryCount || '0');
+                                                        
+                                                        // Retry up to 3 times with increasing delays
+                                                        if (retryCount < 3) {
+                                                            console.warn(`⚠️ License image failed (Approvals), retrying (${retryCount + 1}/3)...`);
+                                                            target.dataset.retryCount = String(retryCount + 1);
+                                                            
+                                                            // Retry with exponential backoff: 2s, 5s, 10s
+                                                            const delays = [2000, 5000, 10000];
+                                                            setTimeout(() => {
+                                                                const separator = licenseImageUrl?.includes('?') ? '&' : '?';
+                                                                target.src = `${licenseImageUrl}${separator}_retry=${Date.now()}`;
+                                                            }, delays[retryCount]);
+                                                        } else {
+                                                            console.error('❌ License image failed after 3 retries (Approvals):', licenseImageUrl);
+                                                            setLicenseImageError('فشل تحميل صورة الرخصة بعد عدة محاولات');
+                                                            setLicenseImageLoading(false);
+                                                        }
+                                                    }}
+                                                    loading="lazy"
                                                 />
-                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center">
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center pointer-events-none">
                                                     <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
                                                     </svg>
                                                 </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        ) : (
+                                            <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                                <div className="text-center">
+                                                    <svg className="w-10 h-10 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    <p className="text-slate-400 text-sm mb-3">لا توجد صورة رخصة متاحة</p>
+                                                    {selectedAccount && selectedAccount.doctor?.id && (
+                                                        <button
+                                                            onClick={async () => {
+                                                                try {
+                                                                    setLicenseImageLoading(true);
+                                                                    setLicenseImageError(null);
+                                                                    const blob = await api.request(`/admin/doctor/${selectedAccount.doctor?.id}/license`, {
+                                                                        method: 'GET',
+                                                                        headers: {
+                                                                            'Accept': 'image/jpeg,image/png,image/*',
+                                                                        },
+                                                                    });
+                                                                    if (blob && blob instanceof Blob) {
+                                                                        const url = URL.createObjectURL(blob);
+                                                                        setLicenseImageUrl(url);
+                                                                        setLicenseImageLoading(false);
+                                                                        window.open(url, '_blank');
+                                                                    } else {
+                                                                        setLicenseImageLoading(false);
+                                                                        setLicenseImageError('لم يتم العثور على صورة الرخصة');
+                                                                    }
+                                                                } catch (error: any) {
+                                                                    setLicenseImageLoading(false);
+                                                                    if (error.status === 404) {
+                                                                        setLicenseImageError('صورة الرخصة غير متوفرة');
+                                                                    } else {
+                                                                        setLicenseImageError('فشل تحميل صورة الرخصة من API');
+                                                                    }
+                                                                    console.error('License API Error:', error);
+                                                                }
+                                                            }}
+                                                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-xs font-medium transition-colors flex items-center gap-2 mx-auto"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                            </svg>
+                                                            تحميل من API
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -483,6 +876,131 @@ const ApprovalsPage: React.FC = () => {
                                             />
                                         </div>
                                     )}
+                                    {/* License Image - For Nurses */}
+                                    <div className="sm:col-span-2">
+                                        <p className="text-xs sm:text-sm text-slate-400 font-medium mb-2">
+                                            صورة رخصة الممرضة
+                                        </p>
+                                        {licenseImageLoading && !licenseImageUrl ? (
+                                            <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                                <div className="text-center">
+                                                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400 mx-auto mb-2"></div>
+                                                    <p className="text-slate-400 text-sm">جاري التحميل...</p>
+                                                    <p className="text-slate-500 text-xs mt-1">يرجى الانتظار، قد يستغرق الأمر بضع لحظات</p>
+                                                </div>
+                                            </div>
+                                        ) : licenseImageError && !licenseImageUrl ? (
+                                            <div className="flex items-center justify-center p-6 bg-red-900/20 rounded-lg border border-red-600">
+                                                <div className="text-center">
+                                                    <svg className="w-10 h-10 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className="text-red-400 text-sm font-medium">{licenseImageError}</p>
+                                                    {licenseImageUrl && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                                            }}
+                                                            className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-xs font-medium transition-colors"
+                                                        >
+                                                            محاولة فتح الرابط
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : licenseImageUrl ? (
+                                            <div className="relative group">
+                                                <img 
+                                                    src={licenseImageUrl}
+                                                    alt="رخصة ممرضة"
+                                                    className="w-full max-w-md rounded-lg border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer shadow-lg"
+                                                    onClick={() => {
+                                                        if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                                    }}
+                                                    onLoad={() => {
+                                                        console.log('✅ License image rendered successfully in Approvals UI');
+                                                        setLicenseImageLoading(false);
+                                                        setLicenseImageError(null);
+                                                    }}
+                                                    onError={(e) => {
+                                                        const target = e.currentTarget;
+                                                        const retryCount = parseInt(target.dataset.retryCount || '0');
+                                                        
+                                                        // Retry up to 3 times with increasing delays
+                                                        if (retryCount < 3) {
+                                                            console.warn(`⚠️ License image failed (Approvals), retrying (${retryCount + 1}/3)...`);
+                                                            target.dataset.retryCount = String(retryCount + 1);
+                                                            
+                                                            // Retry with exponential backoff: 2s, 5s, 10s
+                                                            const delays = [2000, 5000, 10000];
+                                                            setTimeout(() => {
+                                                                const separator = licenseImageUrl?.includes('?') ? '&' : '?';
+                                                                target.src = `${licenseImageUrl}${separator}_retry=${Date.now()}`;
+                                                            }, delays[retryCount]);
+                                                        } else {
+                                                            console.error('❌ License image failed after 3 retries (Approvals):', licenseImageUrl);
+                                                            setLicenseImageError('فشل تحميل صورة الرخصة بعد عدة محاولات');
+                                                            setLicenseImageLoading(false);
+                                                        }
+                                                    }}
+                                                    loading="lazy"
+                                                />
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center pointer-events-none">
+                                                    <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                                <div className="text-center">
+                                                    <svg className="w-10 h-10 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                    <p className="text-slate-400 text-sm mb-3">لا توجد صورة رخصة متاحة</p>
+                                                    {selectedAccount && selectedAccount.nurse?.id && (
+                                                        <button
+                                                            onClick={async () => {
+                                                                try {
+                                                                    setLicenseImageLoading(true);
+                                                                    setLicenseImageError(null);
+                                                                    const blob = await api.request(`/admin/nurse/${selectedAccount.nurse?.id}/license`, {
+                                                                        method: 'GET',
+                                                                        headers: {
+                                                                            'Accept': 'image/jpeg,image/png,image/*',
+                                                                        },
+                                                                    });
+                                                                    if (blob && blob instanceof Blob) {
+                                                                        const url = URL.createObjectURL(blob);
+                                                                        setLicenseImageUrl(url);
+                                                                        setLicenseImageLoading(false);
+                                                                        window.open(url, '_blank');
+                                                                    } else {
+                                                                        setLicenseImageLoading(false);
+                                                                        setLicenseImageError('لم يتم العثور على صورة الرخصة');
+                                                                    }
+                                                                } catch (error: any) {
+                                                                    setLicenseImageLoading(false);
+                                                                    if (error.status === 404) {
+                                                                        setLicenseImageError('صورة الرخصة غير متوفرة');
+                                                                    } else {
+                                                                        setLicenseImageError('فشل تحميل صورة الرخصة من API');
+                                                                    }
+                                                                    console.error('License API Error:', error);
+                                                                }
+                                                            }}
+                                                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-xs font-medium transition-colors flex items-center gap-2 mx-auto"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                            </svg>
+                                                            تحميل من API
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}

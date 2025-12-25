@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        // HMR will auto-detect the correct WebSocket path based on base path
         proxy: {
           '/api': {
             target: 'https://sahtee.evra-co.com',

@@ -32,6 +32,7 @@ export interface PendingAccount {
         age?: number;
         gender?: 'male' | 'female';
         specialization_id?: number;
+        instructions_before_booking?: string | null;
         specialization?: {
             id: number;
             name_ar: string;
@@ -44,6 +45,7 @@ export interface PendingAccount {
         full_name: string;
         profile_description: string;
         profile_image?: string;
+        license_image_path?: string;
         address: string;
         graduation_type: string;
         age?: number;
@@ -123,26 +125,36 @@ export interface DoctorReservation {
 
 export interface Doctor {
   id: number;
+  account_id?: number;
   full_name: string;
   address: string;
   age: number;
   gender: 'male' | 'female';
   profile_description: string;
-  avg_rating?: number;
-  ratings_count?: number;
+  profile_image?: string;
+  license_image_path?: string;
+  specialization_id?: number;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
   account: {
     id?: number;
     email: string;
     phone_number: string;
+    created_at?: string;
+    updated_at?: string;
   };
   specialization: {
     id?: number;
     name_ar: string;
     name_en: string;
+    image?: string;
   };
   services?: DoctorService[];
   doctor_work_schedule?: DoctorWorkSchedule[];
   reservations_count?: number;
+  avg_rating?: number;
+  ratings_count?: number;
 }
 
 export interface Nurse {
@@ -153,9 +165,9 @@ export interface Nurse {
   gender: 'male' | 'female';
   profile_description: string;
   graduation_type: string;
+  license_image_path?: string;
+  profile_image?: string;
   is_active: 0 | 1;
-  avg_rating?: number;
-  ratings_count?: number;
   account: {
     email: string;
     phone_number: string;
@@ -274,8 +286,6 @@ export interface Hospital {
   id: number;
   full_name?: string | null;
   address?: string | null;
-  avg_rating?: number;
-  ratings_count?: number;
   account?: {
     id?: number;
     email?: string | null;
@@ -283,6 +293,8 @@ export interface Hospital {
   } | null;
   services_2?: HospitalServiceWithPivot[];
   work_schedule?: HospitalWorkSchedule[];
+  confirmation_deadline_hours?: number | null;
+  confirmation_hours?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -322,26 +334,5 @@ export interface EntityRatingsSummary {
     current_page?: number;
     data?: EntityRating[];
     total?: number;
-    first_page_url?: string;
-    last_page?: number;
-    last_page_url?: string;
-    links?: Array<{
-      url: string | null;
-      label: string;
-      active: boolean;
-    }>;
-    next_page_url?: string | null;
-    path?: string;
-    per_page?: number;
-    prev_page_url?: string | null;
-    to?: number;
   } | EntityRating[];
-}
-
-export interface Province {
-  id: number;
-  name_ar: string;
-  name_en: string;
-  created_at?: string;
-  updated_at?: string;
 }

@@ -8,6 +8,7 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import { runWithConcurrency, throwIfAborted } from '../utils/async';
+import { getLicenseImageUrl } from '../utils/imageUtils';
 
 const LIST_PAGE_SIZE = 100;
 const DATASET_PAGE_SIZE = 200;
@@ -134,6 +135,73 @@ const NursesPage: React.FC = () => {
         totalPages: 1,
         total: 0,
     });
+
+    const [licenseImageUrl, setLicenseImageUrl] = useState<string | null>(null);
+    const [licenseImageLoading, setLicenseImageLoading] = useState(false);
+    const [licenseImageError, setLicenseImageError] = useState<string | null>(null);
+
+    // عند فتح modal الممرض، نحمل صورة الرخصة
+    useEffect(() => {
+        if (selectedNurse) {
+            // Try multiple possible field names
+            const licensePath = selectedNurse.license_image_path || 
+                               (selectedNurse as any).license_image || 
+                               (selectedNurse as any).license || 
+                               (selectedNurse as any).license_path;
+            
+            if (licensePath) {
+                const url = getLicenseImageUrl(licensePath);
+                setLicenseImageUrl(url);
+                setLicenseImageError(null);
+                if (url) {
+                    setLicenseImageLoading(true);
+                    
+                    // Set a longer timeout before showing error (30 seconds)
+                    const timeoutId = setTimeout(() => {
+                        console.warn('⏱️ License image taking longer than expected to load (Nurses Modal)...');
+                    }, 30000); // 30 seconds
+                    
+                    // Preload image with longer timeout
+                    const img = new Image();
+                    let imageLoaded = false;
+                    
+                    img.onload = () => {
+                        if (!imageLoaded) {
+                            imageLoaded = true;
+                            clearTimeout(timeoutId);
+                            setLicenseImageLoading(false);
+                            setLicenseImageError(null);
+                        }
+                    };
+                    
+                    img.onerror = () => {
+                        console.warn('⚠️ License image preload failed, but will retry in UI (Nurses Modal)');
+                        // Don't set error or stop loading - let the UI img tag handle it
+                    };
+                    
+                    // Start loading with a delay to allow network to stabilize
+                    setTimeout(() => {
+                        img.src = url;
+                    }, 100);
+                    
+                    // Cleanup timeout on unmount
+                    return () => {
+                        clearTimeout(timeoutId);
+                    };
+                } else {
+                    setLicenseImageLoading(false);
+                }
+            } else {
+                setLicenseImageUrl(null);
+                setLicenseImageLoading(false);
+                setLicenseImageError(null);
+            }
+        } else {
+            setLicenseImageUrl(null);
+            setLicenseImageLoading(false);
+            setLicenseImageError(null);
+        }
+    }, [selectedNurse]);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -721,6 +789,92 @@ const NursesPage: React.FC = () => {
                                     />
                                 </div>
                             )}
+                            {/* License Image */}
+                            <div className="mt-4">
+                                <p className="text-xs sm:text-sm text-slate-400 font-medium mb-2">صورة رخصة الممرضة</p>
+                                {licenseImageLoading && !licenseImageUrl ? (
+                                    <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                        <div className="text-center">
+                                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400 mx-auto mb-2"></div>
+                                            <p className="text-slate-400 text-sm">جاري التحميل...</p>
+                                            <p className="text-slate-500 text-xs mt-1">يرجى الانتظار، قد يستغرق الأمر بضع لحظات</p>
+                                        </div>
+                                    </div>
+                                ) : licenseImageError && !licenseImageUrl ? (
+                                    <div className="flex items-center justify-center p-6 bg-red-900/20 rounded-lg border border-red-600">
+                                        <div className="text-center">
+                                            <svg className="w-10 h-10 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            <p className="text-red-300 text-base font-semibold mb-1">صورة الرخصة غير موجودة</p>
+                                            <p className="text-red-400 text-sm">{licenseImageError}</p>
+                                            {licenseImageUrl && (
+                                                <button
+                                                    onClick={() => {
+                                                        if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                                    }}
+                                                    className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-xs font-medium transition-colors"
+                                                >
+                                                    محاولة فتح الرابط
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : licenseImageUrl ? (
+                                    <div className="relative group">
+                                        <img 
+                                            src={licenseImageUrl}
+                                            alt="رخصة ممرضة"
+                                            className="w-full max-w-md rounded-lg border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer shadow-lg"
+                                            onClick={() => {
+                                                if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                            }}
+                                            onLoad={() => {
+                                                console.log('✅ License image rendered successfully in Nurses Modal UI');
+                                                setLicenseImageLoading(false);
+                                                setLicenseImageError(null);
+                                            }}
+                                            onError={(e) => {
+                                                const target = e.currentTarget;
+                                                const retryCount = parseInt(target.dataset.retryCount || '0');
+                                                
+                                                // Retry up to 3 times with increasing delays
+                                                if (retryCount < 3) {
+                                                    console.warn(`⚠️ License image failed (Nurses Modal), retrying (${retryCount + 1}/3)...`);
+                                                    target.dataset.retryCount = String(retryCount + 1);
+                                                    
+                                                    // Retry with exponential backoff: 2s, 5s, 10s
+                                                    const delays = [2000, 5000, 10000];
+                                                    setTimeout(() => {
+                                                        const separator = licenseImageUrl?.includes('?') ? '&' : '?';
+                                                        target.src = `${licenseImageUrl}${separator}_retry=${Date.now()}`;
+                                                    }, delays[retryCount]);
+                                                } else {
+                                                    console.error('❌ License image failed after 3 retries (Nurses Modal):', licenseImageUrl);
+                                                    setLicenseImageError('صورة الرخصة غير موجودة أو لا يمكن الوصول إليها');
+                                                    setLicenseImageLoading(false);
+                                                }
+                                            }}
+                                            loading="lazy"
+                                        />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center pointer-events-none">
+                                            <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                            </svg>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-center p-6 bg-slate-700/50 rounded-lg border border-slate-600">
+                                        <div className="text-center">
+                                            <svg className="w-10 h-10 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                            <p className="text-slate-300 text-base font-semibold mb-1">صورة الرخصة غير موجودة</p>
+                                            <p className="text-slate-400 text-sm">لم يتم العثور على صورة رخصة للممرض/ة في النظام</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -737,9 +891,9 @@ interface DetailItemProps {
 const DetailItem: React.FC<DetailItemProps> = ({ label, value }) => (
     <div className="space-y-1">
         <p className="text-xs sm:text-sm text-slate-400 font-medium">{label}</p>
-        <p className="text-sm sm:text-base text-white font-semibold">
+        <div className="text-sm sm:text-base text-white font-semibold">
             {value || <span className="text-slate-500">غير متوفر</span>}
-        </p>
+        </div>
     </div>
 );
 

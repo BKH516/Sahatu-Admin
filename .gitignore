@@ -53,3 +53,45 @@ secrets/
 .parcel-cache/
 .eslintcache
 .stylelintcache
+
+# Windows user directories and system files
+AppData/
+3D Objects/
+Contacts/
+Desktop/
+Documents/
+Downloads/
+Favorites/
+IntelGraphicsProfiles/
+Links/
+Music/
+OneDrive/
+Pictures/
+Saved Games/
+Searches/
+Videos/
+NTUSER.DAT*
+ntuser.*
+*.ini
+*.LOG*
+
+# Personal directories
+.android/
+.aws/
+.bito/
+.bitowingman/
+.codeium/
+.config/
+.continue/
+.cursor/
+.esd_auth
+.gitconfig
+.lesshst
+.local/
+.npmrc
+.ollama/
+.pulse-cookie
+.pulse/
+.ssh/
+.th-client/
+.void-editor/

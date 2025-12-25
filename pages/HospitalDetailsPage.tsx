@@ -10,6 +10,14 @@ const HospitalDetailsPage: React.FC = () => {
     const [reservations, setReservations] = useState<HospitalReservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [reservationsLoading, setReservationsLoading] = useState(true);
+
+    const getProfileImageUrl = (profileImage?: string): string | null => {
+        if (!profileImage) return null;
+        if (profileImage.startsWith('http://') || profileImage.startsWith('https://')) {
+            return profileImage;
+        }
+        return `https://sahtee.evra-co.com/storage/${profileImage.replace(/^\/+/, '')}`;
+    };
     
     // Filters
     const [statusFilter, setStatusFilter] = useState<string>('');
@@ -161,6 +169,20 @@ const HospitalDetailsPage: React.FC = () => {
             {/* Hospital Info Card */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+                    {/* Profile Image */}
+                    {hospital.profile_image && getProfileImageUrl(hospital.profile_image) && (
+                        <div className="mb-6 flex justify-center">
+                            <img 
+                                src={getProfileImageUrl(hospital.profile_image)!} 
+                                alt={hospital.full_name || 'مشفى'}
+                                className="w-32 h-32 rounded-full object-cover border-4 border-purple-400 shadow-lg shadow-purple-500/50 cursor-pointer hover:border-purple-300 transition-all"
+                                onClick={() => window.open(getProfileImageUrl(hospital.profile_image)!, '_blank')}
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                }}
+                            />
+                        </div>
+                    )}
                     <h2 className="text-xl font-bold text-cyan-400 mb-4">المعلومات الأساسية</h2>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -179,6 +201,15 @@ const HospitalDetailsPage: React.FC = () => {
                             <p className="text-slate-400 text-sm">العنوان</p>
                             <p className="text-white font-medium">{hospital.address || 'غير محدد'}</p>
                         </div>
+                        {(hospital.confirmation_deadline_hours !== null && hospital.confirmation_deadline_hours !== undefined) || 
+                         (hospital.confirmation_hours !== null && hospital.confirmation_hours !== undefined) ? (
+                            <div>
+                                <p className="text-slate-400 text-sm">وقت تأكيد الحجز</p>
+                                <p className="text-white font-medium">
+                                    {hospital.confirmation_deadline_hours ?? hospital.confirmation_hours ?? 0} ساعة
+                                </p>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Nurse, NurseReservation } from '../types';
 import api from '../services/api';
+import { getLicenseImageUrl } from '../utils/imageUtils';
 
 const NurseDetailsPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -22,6 +23,72 @@ const NurseDetailsPage: React.FC = () => {
         total: 0,
     });
 
+    const [licenseImageUrl, setLicenseImageUrl] = useState<string | null>(null);
+    const [licenseImageLoading, setLicenseImageLoading] = useState(false);
+    const [licenseImageError, setLicenseImageError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (nurse) {
+            // Try multiple possible field names
+            const licensePath = nurse.license_image_path || 
+                               (nurse as any).license_image || 
+                               (nurse as any).license || 
+                               (nurse as any).license_path;
+            
+            if (licensePath) {
+                const url = getLicenseImageUrl(licensePath);
+                setLicenseImageUrl(url);
+                setLicenseImageError(null);
+                if (url) {
+                    setLicenseImageLoading(true);
+                    
+                    // Set a longer timeout before showing error (30 seconds)
+                    const timeoutId = setTimeout(() => {
+                        console.warn('⏱️ License image taking longer than expected to load (Nurse)...');
+                    }, 30000); // 30 seconds
+                    
+                    // Preload image with longer timeout
+                    const img = new Image();
+                    let imageLoaded = false;
+                    
+                    img.onload = () => {
+                        if (!imageLoaded) {
+                            imageLoaded = true;
+                            clearTimeout(timeoutId);
+                            setLicenseImageLoading(false);
+                            setLicenseImageError(null);
+                        }
+                    };
+                    
+                    img.onerror = () => {
+                        console.warn('⚠️ License image preload failed, but will retry in UI (Nurse)');
+                        // Don't set error or stop loading - let the UI img tag handle it
+                    };
+                    
+                    // Start loading with a delay to allow network to stabilize
+                    setTimeout(() => {
+                        img.src = url;
+                    }, 100);
+                    
+                    // Cleanup timeout on unmount
+                    return () => {
+                        clearTimeout(timeoutId);
+                    };
+                } else {
+                    setLicenseImageLoading(false);
+                }
+            } else {
+                setLicenseImageUrl(null);
+                setLicenseImageLoading(false);
+                setLicenseImageError(null);
+            }
+        } else {
+            setLicenseImageUrl(null);
+            setLicenseImageLoading(false);
+            setLicenseImageError(null);
+        }
+    }, [nurse]);
+
     useEffect(() => {
         fetchNurseDetails();
     }, [id]);
@@ -36,8 +103,28 @@ const NurseDetailsPage: React.FC = () => {
         setLoading(true);
         try {
             const response = await api.get(`/admin/nurse/${id}`);
-            setNurse(response.nurse || response);
+            const nurseData = response.nurse || response;
+            
+            // Debug: Log the response to check for license image field
+            console.log('Nurse API Response:', nurseData);
+            console.log('License image path:', nurseData.license_image_path);
+            console.log('License image:', nurseData.license_image);
+            console.log('All keys:', Object.keys(nurseData));
+            
+            // Try to find license image in various possible field names
+            if (!nurseData.license_image_path) {
+                if (nurseData.license_image) {
+                    nurseData.license_image_path = nurseData.license_image;
+                } else if (nurseData.license) {
+                    nurseData.license_image_path = nurseData.license;
+                } else if (nurseData.license_path) {
+                    nurseData.license_image_path = nurseData.license_path;
+                }
+            }
+            
+            setNurse(nurseData);
         } catch (error) {
+            console.error('Error fetching nurse details:', error);
         } finally {
             setLoading(false);
         }
@@ -221,6 +308,128 @@ const NurseDetailsPage: React.FC = () => {
                             <div>
                                 <p className="text-slate-400 text-sm">الوصف</p>
                                 <p className="text-white font-medium">{nurse.profile_description}</p>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* License Image */}
+                    <div className="mt-6 pt-6 border-t border-slate-700">
+                        <h3 className="text-lg font-bold text-cyan-400 mb-4">رخصة الممرضة</h3>
+                        {licenseImageLoading && !licenseImageUrl ? (
+                            <div className="flex items-center justify-center p-8 bg-slate-700/50 rounded-lg border border-slate-600">
+                                <div className="text-center">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-400 mx-auto mb-2"></div>
+                                    <p className="text-slate-400">جاري تحميل صورة الرخصة...</p>
+                                    <p className="text-slate-500 text-xs mt-2">يرجى الانتظار، قد يستغرق الأمر بضع لحظات</p>
+                                </div>
+                            </div>
+                        ) : licenseImageError && !licenseImageUrl ? (
+                            <div className="flex items-center justify-center p-8 bg-red-900/20 rounded-lg border border-red-600">
+                                <div className="text-center">
+                                    <svg className="w-12 h-12 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <p className="text-red-400 font-medium">{licenseImageError}</p>
+                                    {nurse?.license_image_path && (
+                                        <p className="text-red-300 text-sm mt-1 break-all">{nurse.license_image_path}</p>
+                                    )}
+                                    {licenseImageUrl && (
+                                        <button
+                                            onClick={() => {
+                                                if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                            }}
+                                            className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white text-sm font-medium transition-colors"
+                                        >
+                                            محاولة فتح الرابط مباشرة
+                                        </button>
+                                    )}
+                                    {/* Fallback: Try API endpoint if direct URL fails */}
+                                    {id && (
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const response = await api.get(`/admin/nurse/${id}/license`, {
+                                                        skipAuth: false,
+                                                    });
+                                                    if (response instanceof Blob) {
+                                                        const url = URL.createObjectURL(response);
+                                                        window.open(url, '_blank');
+                                                    } else if (response.url) {
+                                                        window.open(response.url, '_blank');
+                                                    }
+                                                } catch (error: any) {
+                                                    alert('فشل تحميل صورة الرخصة: ' + (error.message || 'خطأ غير معروف'));
+                                                }
+                                            }}
+                                            className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm font-medium transition-colors"
+                                        >
+                                            محاولة التحميل من API
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : licenseImageUrl ? (
+                            <div className="space-y-4">
+                                <div className="relative group">
+                                    <img 
+                                        src={licenseImageUrl}
+                                        alt="رخصة ممرضة"
+                                        className="w-full max-w-md rounded-lg border-2 border-slate-600 hover:border-cyan-400 transition-all duration-300 cursor-pointer shadow-lg"
+                                        onClick={() => {
+                                            if (licenseImageUrl) window.open(licenseImageUrl, '_blank');
+                                        }}
+                                        onLoad={() => {
+                                            console.log('✅ License image rendered successfully in Nurse UI');
+                                            setLicenseImageLoading(false);
+                                            setLicenseImageError(null);
+                                        }}
+                                        onError={(e) => {
+                                            const target = e.currentTarget;
+                                            const retryCount = parseInt(target.dataset.retryCount || '0');
+                                            
+                                            // Retry up to 3 times with increasing delays
+                                            if (retryCount < 3) {
+                                                console.warn(`⚠️ License image failed (Nurse), retrying (${retryCount + 1}/3)...`);
+                                                target.dataset.retryCount = String(retryCount + 1);
+                                                
+                                                // Retry with exponential backoff: 2s, 5s, 10s
+                                                const delays = [2000, 5000, 10000];
+                                                setTimeout(() => {
+                                                    const separator = licenseImageUrl?.includes('?') ? '&' : '?';
+                                                    target.src = `${licenseImageUrl}${separator}_retry=${Date.now()}`;
+                                                }, delays[retryCount]);
+                                            } else {
+                                                console.error('❌ License image failed after 3 retries (Nurse):', licenseImageUrl);
+                                                setLicenseImageError('فشل تحميل صورة الرخصة بعد عدة محاولات');
+                                                setLicenseImageLoading(false);
+                                            }
+                                        }}
+                                        loading="lazy"
+                                    />
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 rounded-lg flex items-center justify-center pointer-events-none">
+                                        <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-slate-500 text-center">انقر على الصورة لعرضها بحجم كامل</p>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center p-8 bg-slate-700/50 rounded-lg border border-slate-600">
+                                <div className="text-center">
+                                    <svg className="w-12 h-12 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <p className="text-slate-400">لا توجد صورة رخصة متاحة</p>
+                                    {process.env.NODE_ENV === 'development' && nurse && (
+                                        <div className="mt-4 text-xs text-slate-500 text-left">
+                                            <p>Debug Info:</p>
+                                            <p>license_image_path: {nurse.license_image_path || 'null'}</p>
+                                            <p>license_image: {(nurse as any).license_image || 'null'}</p>
+                                            <p>license: {(nurse as any).license || 'null'}</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>

@@ -134,9 +134,15 @@ const api = {
     }
 
     if (!(fetchOptions.body instanceof FormData)) {
-      headers.set('Content-Type', 'application/json');
+      // Only set Content-Type if not already set
+      if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+      }
     }
-    headers.set('Accept', 'application/json');
+    // Only set Accept if not already set (allows custom Accept headers for file endpoints)
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
     
     // إضافة CSRF token من الـ meta tag إذا كان موجود
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -164,8 +170,107 @@ const api = {
       const response = await fetch(url, config);
       clearTimeout(timeoutId);
 
+      // التحقق من نوع المحتوى للتعامل مع الملفات (مثل الصور)
+      const contentType = response.headers.get('content-type') || '';
+      
+      // إذا كان الـ endpoint يتوقع ملف (مثل /license)، تحقق من content-type أو محتوى الـ response
+      const isFileEndpoint = endpoint.includes('/license') || endpoint.includes('/image') || endpoint.includes('/file');
+      
+      // للـ file endpoints، نحاول قراءة الـ response كـ blob أولاً للتحقق من نوعه
+      if (isFileEndpoint) {
+        // قراءة كـ blob مباشرة (أفضل من arrayBuffer لأننا لا نحتاج للتحقق من signature)
+        const blob = await response.blob();
+        
+        if (!response.ok) {
+          // إذا كان status غير OK، حاول parse كـ JSON للرسالة
+          try {
+            const text = await blob.text();
+            if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+              const errorData = JSON.parse(text);
+              const error = new Error(errorData.message || errorData.error || response.statusText || 'An unknown error occurred');
+              (error as any).status = response.status;
+              throw error;
+            }
+          } catch (parseError: any) {
+            // إذا فشل parse JSON، استخدم رسالة الخطأ الافتراضية
+            if (parseError.status) throw parseError; // إذا كان error object، أعد رميه
+          }
+          const error = new Error(response.statusText || 'An unknown error occurred');
+          (error as any).status = response.status;
+          throw error;
+        }
+        
+        // إرجاع Blob مباشرة
+        return blob;
+      }
+      
+      // إذا كان content-type يشير إلى ملف، أو إذا كان الـ response يبدأ بـ PNG signature
+      if (contentType.startsWith('image/') || contentType.startsWith('application/pdf') || contentType.startsWith('application/octet-stream')) {
+        // إذا كانت الاستجابة ملف، نعيد Blob
+        const blob = await response.blob();
+        if (!response.ok) {
+          // محاولة قراءة الـ blob كـ text للتحقق من وجود رسالة خطأ JSON
+          try {
+            const text = await blob.text();
+            // إذا كان النص يبدأ بـ { أو [، فهو JSON
+            if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+              const errorData = JSON.parse(text);
+              const errorMsg = errorData.message || errorData.error || response.statusText || 'An unknown error occurred';
+              const error = new Error(errorMsg);
+              (error as any).status = response.status;
+              throw error;
+            }
+          } catch (parseError) {
+            // إذا فشل parse، استخدم رسالة الخطأ الافتراضية
+          }
+          const errorMsg = response.statusText || 'An unknown error occurred';
+          const error = new Error(errorMsg);
+          (error as any).status = response.status;
+          throw error;
+        }
+        return blob;
+      }
+
+      // قراءة الـ response body كـ text أولاً للتحقق من نوعه
+      // (فقط إذا لم يكن endpoint يتوقع ملف - تم التعامل معه أعلاه)
       const responseBody = await response.text();
-      const data = responseBody ? JSON.parse(responseBody) : {};
+      
+      // التحقق من أن الـ response ليس ملف (PNG, JPEG, etc.) قبل محاولة parse JSON
+      // PNG signature: 89 50 4E 47 (hex) = .PNG (ASCII)
+      // JPEG signature: FF D8 FF
+      let isImageFile = false;
+      if (responseBody.length >= 4) {
+        const firstByte = responseBody.charCodeAt(0);
+        const secondByte = responseBody.charCodeAt(1);
+        // PNG: 89 50 4E 47
+        isImageFile = (firstByte === 0x89 && responseBody.substring(1, 4) === 'PNG') ||
+                     // JPEG: FF D8
+                     (firstByte === 0xFF && secondByte === 0xD8);
+      }
+      
+      if (isImageFile && !response.ok) {
+        // إذا كان الـ response ملف صورة لكن status غير OK، فهذا خطأ
+        const error = new Error('Image file not found or error occurred');
+        (error as any).status = response.status;
+        throw error;
+      }
+      
+      // محاولة parse JSON فقط إذا لم يكن ملف
+      let data: any = {};
+      if (responseBody && !isImageFile) {
+        try {
+          data = JSON.parse(responseBody);
+        } catch (parseError) {
+          // إذا فشل parse JSON وكان status غير OK، استخدم رسالة الخطأ
+          if (!response.ok) {
+            const error = new Error(response.statusText || 'Invalid response format');
+            (error as any).status = response.status;
+            throw error;
+          }
+          // إذا كان status OK لكن parse فشل، قد يكون response فارغ أو نص عادي
+          data = responseBody;
+        }
+      }
 
       // معالجة حالة انتهاء صلاحية التوكن
       if (response.status === 401 && !skipAuth) {
@@ -189,7 +294,9 @@ const api = {
       }
 
       if (!response.ok) {
-        const errorMsg = data.message || data.error || response.statusText || 'An unknown error occurred';
+        const errorMsg = (typeof data === 'object' && data !== null) 
+          ? (data.message || data.error || response.statusText || 'An unknown error occurred')
+          : (response.statusText || 'An unknown error occurred');
         
         // تسجيل الأخطاء الأمنية (إلا إذا كان skipAuth)
         if (response.status === 403 && !skipAuth) {
@@ -314,6 +421,48 @@ const api = {
     }
 
     return this.post(endpoint, formData);
+  },
+
+  // دالة لتحميل رخصة الطبيب من API (الصورة ليست عامة وتتطلب مصادقة)
+  async getDoctorLicense(doctorId: number | string): Promise<Blob | null> {
+    const endpoint = `/admin/doctor/${doctorId}/license`;
+    try {
+      const blob = await this.request(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'image/jpeg,image/png,image/*',
+        },
+      });
+      return blob;
+    } catch (error: any) {
+      // إذا كان الخطأ 404، نعيد null بدلاً من throw
+      if (error.status === 404) {
+        return null;
+      }
+      // للأخطاء الأخرى، نرمي الخطأ
+      throw error;
+    }
+  },
+
+  // دالة لتحميل رخصة الممرضة من API (الصورة ليست عامة وتتطلب مصادقة)
+  async getNurseLicense(nurseId: number | string): Promise<Blob | null> {
+    const endpoint = `/admin/nurse/${nurseId}/license`;
+    try {
+      const blob = await this.request(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'image/jpeg,image/png,image/*',
+        },
+      });
+      return blob;
+    } catch (error: any) {
+      // إذا كان الخطأ 404، نعيد null بدلاً من throw
+      if (error.status === 404) {
+        return null;
+      }
+      // للأخطاء الأخرى، نرمي الخطأ
+      throw error;
+    }
   },
 };
 
